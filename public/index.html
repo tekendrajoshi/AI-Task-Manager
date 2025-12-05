@@ -1,0 +1,41 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Task Manager Dashboard</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header>
+        <h1>AI Task Manager</h1>
+    </header>
+
+    <main>
+        <section class="tasks">
+            <div class="task-column" id="notStarted">
+                <h2>Not Started</h2>
+                <ul></ul>
+            </div>
+            <div class="task-column" id="pending">
+                <h2>Pending</h2>
+                <ul></ul>
+            </div>
+            <div class="task-column" id="completed">
+                <h2>Completed</h2>
+                <ul></ul>
+            </div>
+        </section>
+
+        <section class="chat">
+            <h2>Chat System</h2>
+            <div id="chatMessages"></div>
+            <input type="text" id="chatInput" placeholder="Type a message...">
+            <button id="sendBtn">Send</button>
+        </section>
+    </main>
+
+    <script src="script.js"></script>
+</body>
+</html>

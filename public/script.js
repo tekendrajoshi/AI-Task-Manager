@@ -12,16 +12,14 @@ app.use(express.static(path.join(__dirname, "public")));
 
 // MySQL connection
 const pool = mysql.createPool({
-    host: "centerbeam.proxy.rlwy.net",
-    user: "root",
-    password: "jMNYJWgXozTYlDbPcECyjHBMuTwXwvWU",
-    database: "railway",
-    port: 12008,
+    host: "mysql.railway.internal",      // YOUR_RAILWAY_HOST
+    user: "root",                        // YOUR_DB_USER
+    password: "jMNYJWgXozTYlDbPcECyjHBMuTwXwvWU", // YOUR_DB_PASSWORD
+    database: "railway",                 // YOUR_DB_NAME
     waitForConnections: true,
     connectionLimit: 10,
     queueLimit: 0
 });
-
 
 // Fetch all tasks
 app.get("/tasks", async (req, res) => {
