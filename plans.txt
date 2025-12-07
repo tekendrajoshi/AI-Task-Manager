@@ -117,3 +117,33 @@ fetchTasks();
     Open your browser and go to http://localhost:3000
 You should see: Node.js server is working!
 ====================================================================================
+
+
+
+
+
+
+
+
+
+
+
+
+// node Parse ai output
+// Get all input items
+const items = $input.all();
+
+// Return each item as-is
+return items.map(item => {
+    return {
+        json: {
+            Title: item.json.Title,
+            Description: item.json.Description,
+            Status: item.json.Status,
+            Priority: item.json.Priority,
+            DueDate: item.json.DueDate,
+            CreatedAt: item.json.CreatedAt,
+            UpdatedAt: item.json.UpdatedAt
+        }
+    };
+});
