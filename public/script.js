@@ -1,676 +1,230 @@
-// Global Variables
-let currentPage = 'dashboard';
-let tasks = [];
-let notifications = [];
-let notificationCheckInterval;
+const express = require('express');
+const app = express();
+const path = require('path');
+const fetch = require('node-fetch');
+const { v4: uuidv4 } = require('uuid');
+const mysql = require('mysql2/promise');
 
-// DOM Elements
-const pages = {
-    dashboard: document.getElementById('dashboard-page'),
-    tasks: document.getElementById('tasks-page'),
-    chat: document.getElementById('chat-page')
+// ------------------- DATABASE CONNECTION -------------------
+const dbConfig = {
+    host: "mysql.railway.internal", // Use public host if running locally
+    user: "root",
+    password: "jMNYJWgXozTYlDbPcECyjHBMuTwXwvWU",
+    database: "railway"
 };
 
-// Initialize the application
-document.addEventListener('DOMContentLoaded', () => {
-    initNavigation();
-    loadDashboard();
-    checkForNotifications();
-    
-    // Check for notifications every 30 seconds
-    notificationCheckInterval = setInterval(checkForNotifications, 30000);
-    
-    // Initialize charts (will be loaded when dashboard is shown)
-    if (window.Chart) {
-        initCharts();
+let db;
+mysql.createConnection(dbConfig).then(connection => {
+    db = connection;
+    console.log("Database connected");
+}).catch(err => console.error("DB Connection error:", err));
+
+// ------------------- MIDDLEWARE -------------------
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+app.use(express.static(path.join(__dirname, 'public')));
+
+// ------------------- FRONTEND ROUTES -------------------
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+app.get('/login', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'login.html'));
+});
+
+app.get('/register', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'register.html'));
+});
+
+// ------------------- GOOGLE LOGIN -------------------
+app.post('/auth/google', async (req, res) => {
+    const { id_token } = req.body;
+    if (!id_token) return res.json({ success: false, message: 'No ID token provided' });
+
+    try {
+        const googleResponse = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${id_token}`);
+        const googleUser = await googleResponse.json();
+
+        if (googleUser.error_description) {
+            return res.json({ success: false, message: googleUser.error_description });
+        }
+
+        const user_id = googleUser.sub;
+        const name = googleUser.name;
+        const email = googleUser.email;
+        const picture = googleUser.picture;
+
+        // Check if user exists
+        const [rows] = await db.execute('SELECT * FROM task_users WHERE user_id = ?', [user_id]);
+        if (rows.length === 0) {
+            // Insert new user
+            await db.execute(
+                'INSERT INTO task_users (user_id, name, email, picture, password) VALUES (?, ?, ?, ?, NULL)',
+                [user_id, name, email, picture]
+            );
+        }
+
+        res.json({ success: true, user: { user_id, name, email, picture } });
+    } catch (err) {
+        console.error(err);
+        res.json({ success: false, message: 'Google login failed' });
     }
 });
 
-// Navigation Functions
-function initNavigation() {
-    document.querySelectorAll('.nav-link').forEach(link => {
-        link.addEventListener('click', (e) => {
-            e.preventDefault();
-            const page = link.dataset.page;
-            switchPage(page);
-        });
-    });
-    
-    // Set dashboard as active by default
-    switchPage('dashboard');
-}
+// ------------------- MANUAL REGISTER -------------------
+app.post('/auth/register', async (req, res) => {
+    const { name, email, password } = req.body;
+    if (!name || !email || !password) return res.json({ success: false, message: 'All fields required' });
 
-function switchPage(page) {
-    // Update active page
-    currentPage = page;
-    
-    // Update navigation
-    document.querySelectorAll('.nav-link').forEach(link => {
-        link.classList.remove('active');
-        if (link.dataset.page === page) {
-            link.classList.add('active');
-        }
-    });
-    
-    // Show/hide pages
-    Object.keys(pages).forEach(key => {
-        if (key === page) {
-            pages[key].classList.add('active');
-        } else {
-            pages[key].classList.remove('active');
-        }
-    });
-    
-    // Load page-specific content
-    switch(page) {
-        case 'dashboard':
-            loadDashboard();
-            break;
-        case 'tasks':
-            loadTasks();
-            break;
-        case 'chat':
-            loadChat();
-            break;
-    }
-}
-
-// Dashboard Functions
-async function loadDashboard() {
     try {
-        const response = await fetch('/api/task-stats');
-        const stats = await response.json();
-        
-        updateDashboardStats(stats);
-        updateCharts(stats);
-        updateNotifications(stats);
-    } catch (error) {
-        console.error('Error loading dashboard:', error);
-        showNotification('Failed to load dashboard data', 'error');
-    }
-}
+        const [rows] = await db.execute('SELECT * FROM task_users WHERE email = ?', [email]);
+        if (rows.length > 0) return res.json({ success: false, message: 'Email already registered' });
 
-function updateDashboardStats(stats) {
-    // Update stat cards
-    document.getElementById('pending-count').textContent = stats.byStatus['Pending'] || 0;
-    document.getElementById('completed-count').textContent = stats.byStatus['Completed'] || 0;
-    document.getElementById('not-started-count').textContent = stats.byStatus['Not Started'] || 0;
-    document.getElementById('urgent-count').textContent = stats.urgent || 0;
-    
-    // Update upcoming deadlines
-    const deadlinesList = document.getElementById('upcoming-deadlines');
-    deadlinesList.innerHTML = '';
-    
-    if (stats.upcomingDeadlines && stats.upcomingDeadlines.length > 0) {
-        stats.upcomingDeadlines.forEach(task => {
-            const daysRemaining = Math.ceil((new Date(task.DueDate) - new Date()) / (1000 * 60 * 60 * 24));
-            const item = document.createElement('div');
-            item.className = 'deadline-item';
-            item.innerHTML = `
-                <div class="deadline-title">${task.Title}</div>
-                <div class="deadline-date ${daysRemaining <= 2 ? 'urgent' : ''}">
-                    ${formatDate(task.DueDate)} (${daysRemaining} ${daysRemaining === 1 ? 'day' : 'days'})
-                </div>
-            `;
-            deadlinesList.appendChild(item);
-        });
-    } else {
-        deadlinesList.innerHTML = '<div class="no-deadlines">No upcoming deadlines</div>';
-    }
-}
-
-// Chart Functions
-let statusChart, priorityChart;
-
-function initCharts() {
-    const statusCtx = document.getElementById('status-chart').getContext('2d');
-    const priorityCtx = document.getElementById('priority-chart').getContext('2d');
-    
-    statusChart = new Chart(statusCtx, {
-        type: 'doughnut',
-        data: {
-            labels: ['Not Started', 'Pending', 'Completed'],
-            datasets: [{
-                data: [0, 0, 0],
-                backgroundColor: [
-                    '#6c757d',
-                    '#ff9f1c',
-                    '#2ec4b6'
-                ],
-                borderWidth: 2,
-                borderColor: '#fff'
-            }]
-        },
-        options: {
-            responsive: true,
-            plugins: {
-                legend: {
-                    position: 'bottom'
-                }
-            }
-        }
-    });
-    
-    priorityChart = new Chart(priorityCtx, {
-        type: 'bar',
-        data: {
-            labels: ['High', 'Medium', 'Low'],
-            datasets: [{
-                label: 'Tasks by Priority',
-                data: [0, 0, 0],
-                backgroundColor: [
-                    '#e71d36',
-                    '#ff9f1c',
-                    '#2ec4b6'
-                ],
-                borderWidth: 1
-            }]
-        },
-        options: {
-            responsive: true,
-            scales: {
-                y: {
-                    beginAtZero: true,
-                    ticks: {
-                        stepSize: 1
-                    }
-                }
-            }
-        }
-    });
-}
-
-function updateCharts(stats) {
-    if (!statusChart || !priorityChart) return;
-    
-    // Update status chart
-    statusChart.data.datasets[0].data = [
-        stats.byStatus['Not Started'] || 0,
-        stats.byStatus['Pending'] || 0,
-        stats.byStatus['Completed'] || 0
-    ];
-    statusChart.update();
-    
-    // Update priority chart
-    priorityChart.data.datasets[0].data = [
-        stats.byPriority['High'] || 0,
-        stats.byPriority['Medium'] || 0,
-        stats.byPriority['Low'] || 0
-    ];
-    priorityChart.update();
-}
-
-// Tasks Functions
-async function loadTasks() {
-    try {
-        showLoading('tasks-container', 'Loading tasks...');
-        
-        const response = await fetch('/api/tasks');
-        tasks = await response.json();
-        
-        renderTasks();
-        setupTaskFilters();
-    } catch (error) {
-        console.error('Error loading tasks:', error);
-        showNotification('Failed to load tasks', 'error');
-    }
-}
-
-function renderTasks(filter = 'all') {
-    const taskLists = {
-        'not-started': document.getElementById('not-started-tasks'),
-        'pending': document.getElementById('pending-tasks'),
-        'completed': document.getElementById('completed-tasks')
-    };
-    
-    // Clear all task lists
-    Object.values(taskLists).forEach(list => {
-        list.innerHTML = '';
-    });
-    
-    // Filter tasks
-    let filteredTasks = tasks;
-    if (filter !== 'all') {
-        filteredTasks = tasks.filter(task => 
-            filter === 'priority' ? task.Priority === filter : 
-            filter === 'status' ? task.Status === filter : 
-            task.Priority === filter
+        const user_id = uuidv4();
+        await db.execute(
+            'INSERT INTO task_users (user_id, name, email, picture, password) VALUES (?, ?, ?, NULL, ?)',
+            [user_id, name, email, password]
         );
+
+        res.json({ success: true, user_id });
+    } catch (err) {
+        console.error(err);
+        res.json({ success: false, message: 'Registration failed' });
     }
-    
-    // Group tasks by status
-    const groupedTasks = {
-        'Not Started': [],
-        'Pending': [],
-        'Completed': []
-    };
-    
-    filteredTasks.forEach(task => {
-        if (groupedTasks[task.Status]) {
-            groupedTasks[task.Status].push(task);
-        }
-    });
-    
-    // Render tasks in each column
-    Object.keys(groupedTasks).forEach(status => {
-        const columnId = status.toLowerCase().replace(' ', '-');
-        const taskList = taskLists[columnId];
-        
-        if (groupedTasks[status].length === 0) {
-            taskList.innerHTML = '<div class="no-tasks">No tasks in this category</div>';
-            return;
-        }
-        
-        groupedTasks[status].forEach(task => {
-            const taskElement = createTaskElement(task);
-            taskList.appendChild(taskElement);
-        });
-    });
-    
-    // Update task counts
-    document.getElementById('not-started-count').textContent = groupedTasks['Not Started'].length;
-    document.getElementById('pending-count').textContent = groupedTasks['Pending'].length;
-    document.getElementById('completed-count').textContent = groupedTasks['Completed'].length;
+});
+
+// ------------------- MIDDLEWARE TO CHECK user_id -------------------
+function requireUserId(req, res, next) {
+    // GET requests → user_id in query
+    // POST requests → user_id in body
+    const user_id = req.query.user_id || req.body.user_id;
+    if (!user_id) return res.status(400).json({ error: 'Missing user_id' });
+    req.user_id = user_id; // attach to request for easy use
+    next();
 }
 
-function createTaskElement(task) {
-    const div = document.createElement('div');
-    div.className = `task-card priority-${task.Priority ? task.Priority.toLowerCase() : 'medium'}`;
-    div.dataset.id = task.TaskID;
-    div.draggable = true;
-    
-    const dueDate = task.DueDate ? new Date(task.DueDate) : null;
-    const daysRemaining = dueDate ? Math.ceil((dueDate - new Date()) / (1000 * 60 * 60 * 24)) : null;
-    
-    div.innerHTML = `
-        <div class="task-header">
-            <div>
-                <div class="task-title">${task.Title || 'Untitled Task'}</div>
-                ${task.Description ? `<div class="task-description">${task.Description}</div>` : ''}
-            </div>
-            <div class="task-priority">${getPriorityIcon(task.Priority)}</div>
-        </div>
-        <div class="task-footer">
-            <div class="task-info">
-                ${dueDate ? `<div class="task-due ${daysRemaining <= 2 ? 'urgent' : ''}">
-                    ${formatDate(task.DueDate)}
-                </div>` : ''}
-                <div class="task-created">Created: ${formatDate(task.CreatedAt)}</div>
-            </div>
-            <div class="task-actions">
-                <button class="action-btn" onclick="updateTaskStatus(${task.TaskID}, 'Completed')" title="Mark as completed">
-                    ✓
-                </button>
-                <button class="action-btn" onclick="deleteTask(${task.TaskID})" title="Delete task">
-                    ×
-                </button>
-            </div>
-        </div>
-    `;
-    
-    // Add drag and drop event listeners
-    div.addEventListener('dragstart', handleDragStart);
-    div.addEventListener('dragover', handleDragOver);
-    div.addEventListener('drop', handleDrop);
-    
-    return div;
-}
-
-function getPriorityIcon(priority) {
-    const icons = {
-        'High': '🔴',
-        'Medium': '🟡',
-        'Low': '🟢'
-    };
-    return icons[priority] || '⚪';
-}
-
-function setupTaskFilters() {
-    document.querySelectorAll('.filter-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-            document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
-            renderTasks(btn.dataset.filter);
-        });
-    });
-}
-
-// Task Management Functions
-async function updateTaskStatus(taskId, status) {
+// ------------------- TASKS API -------------------
+app.get('/api/tasks', requireUserId, async (req, res) => {
     try {
-        const response = await fetch(`/api/tasks/${taskId}`, {
-            method: 'PUT',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ Status: status })
-        });
-        
-        if (response.ok) {
-            showNotification('Task updated successfully', 'success');
-            await loadTasks();
-            await loadDashboard(); // Refresh dashboard stats
-        }
-    } catch (error) {
-        console.error('Error updating task:', error);
-        showNotification('Failed to update task', 'error');
+        const [tasks] = await db.execute('SELECT * FROM ai_task_manager WHERE user_id = ?', [req.user_id]);
+        res.json(tasks);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Failed to fetch tasks' });
     }
-}
+});
 
-async function deleteTask(taskId) {
-    if (!confirm('Are you sure you want to delete this task?')) return;
-    
+app.put('/api/tasks/:id', requireUserId, async (req, res) => {
+    const taskId = req.params.id;
+    const { Status } = req.body;
     try {
-        const response = await fetch(`/api/tasks/${taskId}`, {
-            method: 'DELETE'
-        });
-        
-        if (response.ok) {
-            showNotification('Task deleted successfully', 'success');
-            await loadTasks();
-            await loadDashboard(); // Refresh dashboard stats
-        }
-    } catch (error) {
-        console.error('Error deleting task:', error);
-        showNotification('Failed to delete task', 'error');
+        await db.execute('UPDATE ai_task_manager SET Status = ? WHERE TaskID = ? AND user_id = ?', [Status, taskId, req.user_id]);
+        res.sendStatus(200);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Failed to update task' });
     }
-}
+});
 
-// Drag and Drop Functions
-let draggedTask = null;
-
-function handleDragStart(e) {
-    draggedTask = this;
-    e.dataTransfer.effectAllowed = 'move';
-    e.dataTransfer.setData('text/html', this.innerHTML);
-    this.classList.add('dragging');
-}
-
-function handleDragOver(e) {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
-    this.classList.add('drag-over');
-}
-
-function handleDrop(e) {
-    e.preventDefault();
-    this.classList.remove('drag-over');
-    
-    if (draggedTask !== this) {
-        const newStatus = this.closest('.task-column').dataset.status;
-        const taskId = draggedTask.dataset.id;
-        
-        updateTaskStatus(taskId, newStatus);
-    }
-}
-
-// Chat Functions
-let chatMessages = [];
-
-function loadChat() {
-    const chatMessagesDiv = document.getElementById('chat-messages');
-    chatMessagesDiv.innerHTML = '';
-    
-    // Load previous messages
-    chatMessages.forEach(message => {
-        addMessageToChat(message.text, message.sender, message.timestamp);
-    });
-    
-    // Focus on input
-    setTimeout(() => {
-        document.getElementById('chat-input').focus();
-    }, 100);
-    
-    // Setup send button and enter key
-    const sendBtn = document.getElementById('send-btn');
-    const chatInput = document.getElementById('chat-input');
-    
-    sendBtn.addEventListener('click', sendMessage);
-    chatInput.addEventListener('keypress', (e) => {
-        if (e.key === 'Enter' && !e.shiftKey) {
-            e.preventDefault();
-            sendMessage();
-        }
-    });
-}
-
-async function sendMessage() {
-    const input = document.getElementById('chat-input');
-    const message = input.value.trim();
-    const sendBtn = document.getElementById('send-btn');
-    
-    if (!message) return;
-    
-    // Add user message to chat
-    addMessageToChat(message, 'user');
-    input.value = '';
-    sendBtn.disabled = true;
-    
+app.delete('/api/tasks/:id', requireUserId, async (req, res) => {
+    const taskId = req.params.id;
     try {
-        const response = await fetch('/api/chat', {
+        await db.execute('DELETE FROM ai_task_manager WHERE TaskID = ? AND user_id = ?', [taskId, req.user_id]);
+        res.sendStatus(200);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Failed to delete task' });
+    }
+});
+
+// ------------------- TASK STATS (DASHBOARD) -------------------
+app.get('/api/task-stats', requireUserId, async (req, res) => {
+    try {
+        const [tasks] = await db.execute('SELECT * FROM ai_task_manager WHERE user_id = ?', [req.user_id]);
+        const byStatus = { 'Not Started': 0, 'Pending': 0, 'Completed': 0 };
+        const byPriority = { 'High': 0, 'Medium': 0, 'Low': 0 };
+        const urgent = [];
+        const upcomingDeadlines = [];
+
+        tasks.forEach(task => {
+            byStatus[task.Status] = (byStatus[task.Status] || 0) + 1;
+            byPriority[task.Priority] = (byPriority[task.Priority] || 0) + 1;
+
+            if (task.DueDate) {
+                const due = new Date(task.DueDate);
+                const now = new Date();
+                const diffDays = Math.ceil((due - now) / (1000 * 60 * 60 * 24));
+                if (diffDays <= 2) urgent.push(task);
+                if (diffDays >= 0) upcomingDeadlines.push(task);
+            }
+        });
+
+        res.json({
+            byStatus,
+            byPriority,
+            urgent: urgent.length,
+            upcomingDeadlines
+        });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Failed to fetch stats' });
+    }
+});
+
+// ------------------- NOTIFICATIONS -------------------
+app.get('/api/notifications', requireUserId, async (req, res) => {
+    try {
+        const [tasks] = await db.execute('SELECT * FROM ai_task_manager WHERE user_id = ?', [req.user_id]);
+        const notifications = tasks
+            .filter(task => task.DueDate && Math.ceil((new Date(task.DueDate) - new Date()) / (1000*60*60*24)) <= 2)
+            .map(task => ({
+                TaskID: task.TaskID,
+                Title: task.Title,
+                message: `Task "${task.Title}" is due soon!`,
+                type: 'urgent'
+            }));
+        res.json(notifications);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Failed to fetch notifications' });
+    }
+});
+
+// ------------------- CHAT API (n8n) -------------------
+app.post('/api/chat', requireUserId, async (req, res) => {
+    const { message } = req.body;
+    try {
+        const response = await fetch('https://n8n-production-be6f.up.railway.app/webhook/17e8f3f1-996f-448c-86df-16a3ee302e96', {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ message })
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ message, user_id: req.user_id })
         });
-        
         const data = await response.json();
-        
-        // Extract AI response
-        let aiResponse = '';
-        if (Array.isArray(data) && data[0]?.output) {
-            aiResponse = data[0].output;
-        } else if (data.response) {
-            aiResponse = data.response;
-        } else if (typeof data === 'string') {
-            aiResponse = data;
-        } else {
-            aiResponse = 'I received your message. Let me process that for you.';
-        }
-        
-        // Add AI response to chat
-        setTimeout(() => {
-            addMessageToChat(aiResponse, 'ai');
-            sendBtn.disabled = false;
-            input.focus();
-        }, 1000); // Simulate thinking time
-    } catch (error) {
-        console.error('Error sending message:', error);
-        addMessageToChat('Sorry, I encountered an error. Please try again.', 'ai');
-        sendBtn.disabled = false;
-        input.focus();
+        res.json(data);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Failed to send chat message' });
     }
-}
+});
 
-function addMessageToChat(text, sender, timestamp = new Date()) {
-    const chatMessagesDiv = document.getElementById('chat-messages');
-    
-    const messageDiv = document.createElement('div');
-    messageDiv.className = `message ${sender}`;
-    
-    const timeString = typeof timestamp === 'string' ? timestamp : 
-        timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    
-    messageDiv.innerHTML = `
-        <div class="message-text">${formatMessage(text)}</div>
-        <div class="message-time">${timeString}</div>
-    `;
-    
-    chatMessagesDiv.appendChild(messageDiv);
-    chatMessagesDiv.scrollTop = chatMessagesDiv.scrollHeight;
-    
-    // Store message
-    chatMessages.push({
-        text,
-        sender,
-        timestamp: timeString
-    });
-    
-    // Keep only last 50 messages
-    if (chatMessages.length > 50) {
-        chatMessages = chatMessages.slice(-50);
-    }
-}
+// ------------------- START SERVER -------------------
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
 
-function formatMessage(text) {
-    // Convert URLs to links
-    text = text.replace(
-        /(https?:\/\/[^\s]+)/g,
-        '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>'
-    );
-    
-    // Convert newlines to <br>
-    text = text.replace(/\n/g, '<br>');
-    
-    // Convert *bold* to <strong>
-    text = text.replace(/\*(.*?)\*/g, '<strong>$1</strong>');
-    
-    return text;
-}
+// Minimal client-side script: redirect to login if not authenticated and protect index UI.
 
-// Notification Functions
-async function checkForNotifications() {
-    try {
-        const response = await fetch('/api/notifications');
-        notifications = await response.json();
-        
-        // Update notification badge
-        const badge = document.getElementById('notification-badge');
-        if (notifications.length > 0) {
-            badge.textContent = notifications.length;
-            badge.style.display = 'inline-block';
-            
-            // Show desktop notifications if granted permission
-            if (Notification.permission === 'granted') {
-                showDesktopNotifications(notifications);
-            }
-        } else {
-            badge.style.display = 'none';
-        }
-        
-        // Show in-app notifications
-        showInAppNotifications(notifications);
-    } catch (error) {
-        console.error('Error checking notifications:', error);
-    }
-}
+window.addEventListener("load", () => {
+  const path = window.location.pathname;
+  const isIndex = path === "/" || path.endsWith("/index.html");
+  const userId = localStorage.getItem("user_id");
 
-function showInAppNotifications(notifications) {
-    const container = document.getElementById('notification-container');
-    if (!container) return;
-    
-    // Clear old notifications
-    container.innerHTML = '';
-    
-    // Show only the 3 most recent notifications
-    notifications.slice(0, 3).forEach(notification => {
-        const notificationDiv = document.createElement('div');
-        notificationDiv.className = `notification ${notification.type}`;
-        notificationDiv.innerHTML = `
-            <div class="notification-icon">
-                ${notification.type === 'urgent' ? '⚠️' : 'ℹ️'}
-            </div>
-            <div class="notification-content">
-                <div class="notification-message">${notification.message}</div>
-                <div class="notification-task">${notification.Title}</div>
-            </div>
-            <button class="notification-close" onclick="this.parentElement.remove()">×</button>
-        `;
-        
-        container.appendChild(notificationDiv);
-        
-        // Auto-remove after 10 seconds
-        setTimeout(() => {
-            if (notificationDiv.parentElement) {
-                notificationDiv.remove();
-            }
-        }, 10000);
-    });
-}
+  if (isIndex && !userId) {
+    // User not logged in client-side — redirect to login page.
+    window.location.href = "/login";
+    return;
+  }
 
-function showDesktopNotifications(notifications) {
-    notifications.forEach(notification => {
-        new Notification('Task Reminder', {
-            body: notification.message,
-            icon: '/favicon.ico',
-            tag: notification.TaskID
-        });
-    });
-}
-
-function requestNotificationPermission() {
-    if (Notification.permission === 'default') {
-        Notification.requestPermission().then(permission => {
-            if (permission === 'granted') {
-                console.log('Notification permission granted');
-            }
-        });
-    }
-}
-
-// Utility Functions
-function formatDate(dateString) {
-    if (!dateString) return 'No date';
-    
-    const date = new Date(dateString);
-    const now = new Date();
-    const diffTime = Math.abs(now - date);
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    
-    if (diffDays === 0) return 'Today';
-    if (diffDays === 1) return 'Yesterday';
-    if (diffDays < 7) return `${diffDays} days ago`;
-    
-    return date.toLocaleDateString('en-US', {
-        month: 'short',
-        day: 'numeric',
-        year: date.getFullYear() !== now.getFullYear() ? 'numeric' : undefined
-    });
-}
-
-function showNotification(message, type = 'info') {
-    const container = document.getElementById('notification-container');
-    if (!container) return;
-    
-    const notification = document.createElement('div');
-    notification.className = `notification ${type}`;
-    notification.innerHTML = `
-        <div class="notification-icon">
-            ${type === 'success' ? '✓' : type === 'error' ? '⚠️' : 'ℹ️'}
-        </div>
-        <div class="notification-message">${message}</div>
-        <button class="notification-close" onclick="this.parentElement.remove()">×</button>
-    `;
-    
-    container.appendChild(notification);
-    
-    // Auto-remove after 5 seconds
-    setTimeout(() => {
-        if (notification.parentElement) {
-            notification.remove();
-        }
-    }, 5000);
-}
-
-function showLoading(containerId, message = 'Loading...') {
-    const container = document.getElementById(containerId);
-    if (!container) return;
-    
-    container.innerHTML = `
-        <div class="loading">
-            <div class="loading-spinner"></div>
-            <div>${message}</div>
-        </div>
-    `;
-}
-
-// Initialize notification permission on page load
-if ('Notification' in window) {
-    requestNotificationPermission();
-}
-
-// Export functions for HTML onclick events
-window.updateTaskStatus = updateTaskStatus;
-window.deleteTask = deleteTask;
-window.sendMessage = sendMessage;
+  // Placeholder for other client-side initialization (charts, tasks, chat)
+  console.log("Client script initialized. user_id:", userId);
+});

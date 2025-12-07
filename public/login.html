@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Login - AI Task Manager</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="styles.css">
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
+</head>
+<body>
+    <div class="login-container">
+        <h2>Welcome Back!</h2>
+        
+        <!-- Google Sign-In button -->
+        <div id="g_id_onload"
+             data-client_id="417160946652-c27t0f9f0ls0febl59u1iu90jo08okha.apps.googleusercontent.com"
+             data-login_uri="/auth/google"
+             data-auto_prompt="false">
+        </div>
+
+        <div class="g_id_signin"
+             data-type="standard"
+             data-shape="rectangular"
+             data-theme="outline"
+             data-text="signin_with"
+             data-size="large"
+             data-logo_alignment="left">
+        </div>
+
+        <p>Or <a href="register.html">Register</a> if you don't have an account.</p>
+    </div>
+
+    <script>
+        function handleCredentialResponse(response) {
+            // Send ID token to backend
+            fetch('/auth/google', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ id_token: response.credential })
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    // Store user info in localStorage/sessionStorage if needed
+                    localStorage.setItem('user_id', data.user.user_id);
+                    localStorage.setItem('user_name', data.user.name);
+                    // Redirect to main app
+                    window.location.href = 'index.html';
+                } else {
+                    alert('Login failed: ' + data.message);
+                }
+            })
+            .catch(err => console.error(err));
+        }
+
+        window.onload = function () {
+            google.accounts.id.initialize({
+                client_id: 'YOUR_GOOGLE_CLIENT_ID',
+                callback: handleCredentialResponse
+            });
+            google.accounts.id.renderButton(
+                document.querySelector(".g_id_signin"),
+                { theme: "outline", size: "large" }
+            );
+        };
+    </script>
+</body>
+</html>

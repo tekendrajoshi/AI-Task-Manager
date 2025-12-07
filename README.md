@@ -24,3 +24,21 @@ Use an interactive dashboard with stats, notifications, upcoming deadlines.
 
 Everything connected to a backend + SQL database + an n8n workflow.
  
+
+
+
+ ## NEXT STEPS (Recommended Order)
+
+Create users table in Railway
+
+Add user_id column to tasks table
+
+Implement Google Login
+
+Store Google user in DB
+
+Send user_id with every request
+
+Modify n8n workflow to store tasks by user
+
+Deploy frontend + backend on Railway

@@ -2,6 +2,7 @@ const express = require("express");
 const mysql = require("mysql2/promise");
 const cors = require("cors");
 const path = require("path");
+const cookieParser = require("cookie-parser"); // added
 require("dotenv").config();
 
 const app = express();
@@ -9,6 +10,17 @@ const app = express();
 // Middleware
 app.use(cors());
 app.use(express.json());
+app.use(cookieParser()); // added
+
+// Serve login at root BEFORE static so visiting / shows login page
+app.get("/", (req, res) => {
+    res.sendFile(path.join(__dirname, "public", "login.html"));
+});
+app.get("/login", (req, res) => {
+    res.sendFile(path.join(__dirname, "public", "login.html"));
+});
+
+// Serve static files after explicit root/login routes
 app.use(express.static("public"));
 
 
@@ -238,8 +250,12 @@ app.get("/api/notifications", async (req, res) => {
     }
 });
 
-// Serve the main page for all routes (SPA)
+// Serve the main page for all routes (SPA) — redirect unauthenticated users to / (login)
 app.get("*", (req, res) => {
+    // If you use a cookie named "user_id" to mark logged-in users, check it here.
+    if (!req.cookies || !req.cookies.user_id) {
+        return res.redirect("/");
+    }
     res.sendFile(path.join(__dirname, "public", "index.html"));
 });
 
