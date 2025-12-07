@@ -259,6 +259,61 @@ app.get("*", (req, res) => {
     res.sendFile(path.join(__dirname, "public", "index.html"));
 });
 
+// --------------------- AUTH (Google + Register) ---------------------
+app.post("/auth/google", async (req, res) => {
+    const { id_token } = req.body;
+    if (!id_token) return res.status(400).json({ success: false, message: "No id_token provided" });
+
+    try {
+        // Verify token with Google
+        const googleResp = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${id_token}`);
+        const googleUser = await googleResp.json();
+        if (googleUser.error_description || googleUser.error) {
+            return res.status(400).json({ success: false, message: googleUser.error_description || googleUser.error });
+        }
+
+        const user_id = googleUser.sub;
+        const name = googleUser.name || null;
+        const email = googleUser.email || null;
+        const picture = googleUser.picture || null;
+
+        // Insert or update user record
+        await pool.query(
+            `INSERT INTO task_users (user_id, name, email, picture)
+             VALUES (?, ?, ?, ?)
+             ON DUPLICATE KEY UPDATE name = VALUES(name), email = VALUES(email), picture = VALUES(picture)`,
+            [user_id, name, email, picture]
+        );
+
+        // Set httpOnly cookie to mark session (server-side guard)
+        res.cookie("user_id", user_id, { httpOnly: true, maxAge: 7 * 24 * 60 * 60 * 1000 });
+
+        return res.json({ success: true, user: { user_id, name, email, picture } });
+    } catch (err) {
+        console.error("Auth (google) error:", err);
+        return res.status(500).json({ success: false, message: "Google auth failed" });
+    }
+});
+
+app.post("/auth/register", async (req, res) => {
+    const { name, email, password } = req.body;
+    if (!name || !email || !password) return res.status(400).json({ success: false, message: "All fields required" });
+
+    try {
+        const [exists] = await pool.query("SELECT 1 FROM task_users WHERE email = ? LIMIT 1", [email]);
+        if (exists.length > 0) return res.status(400).json({ success: false, message: "Email already registered" });
+
+        const user_id = require("crypto").randomUUID();
+        await pool.query("INSERT INTO task_users (user_id, name, email, password) VALUES (?, ?, ?, ?)", [user_id, name, email, password]);
+
+        res.cookie("user_id", user_id, { httpOnly: true, maxAge: 7 * 24 * 60 * 60 * 1000 });
+        return res.json({ success: true, user: { user_id, name, email } });
+    } catch (err) {
+        console.error("Auth (register) error:", err);
+        return res.status(500).json({ success: false, message: "Registration failed" });
+    }
+});
+
 // Start server
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
