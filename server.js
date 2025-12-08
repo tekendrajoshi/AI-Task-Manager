@@ -2,40 +2,48 @@ const express = require("express");
 const mysql = require("mysql2/promise");
 const cors = require("cors");
 const path = require("path");
-const cookieParser = require("cookie-parser"); // added
+const cookieParser = require("cookie-parser"); // <--- added
+// const fetch = require("node-fetch");    // removed — use global fetch (Node 18+)
+const { randomUUID } = require("crypto");
 require("dotenv").config();
 
 const app = express();
 
 // Middleware
-app.use(cors());
+app.use(cors({
+    origin: true,
+    credentials: true
+}));
 app.use(express.json());
-app.use(cookieParser()); // added
+app.use(cookieParser());
 
-// Serve login at root BEFORE static so visiting / shows login page
+// Serve login at root
 app.get("/", (req, res) => {
     res.sendFile(path.join(__dirname, "public", "login.html"));
 });
+
 app.get("/login", (req, res) => {
     res.sendFile(path.join(__dirname, "public", "login.html"));
 });
 
-// Serve static files after explicit root/login routes
+app.get("/register", (req, res) => {
+    res.sendFile(path.join(__dirname, "public", "register.html"));
+});
+
+// Serve static files
 app.use(express.static("public"));
 
-
-// Database configuration - USE EXTERNAL RAILWAY HOST
+// Database configuration
 const pool = mysql.createPool({
-    host: "centerbeam.proxy.rlwy.net",   // Use Railway public host
+    host: "centerbeam.proxy.rlwy.net",
     user: "root",
     password: "jMNYJWgXozTYlDbPcECyjHBMuTwXwvWU",
     database: "railway",
-    port: 12008,                         // Port from public URL
+    port: 12008,
     waitForConnections: true,
     connectionLimit: 10,
     queueLimit: 0
 });
- 
 
 // Test database connection
 pool.getConnection()
@@ -47,22 +55,112 @@ pool.getConnection()
         console.error("❌ Database connection failed:", err.message);
     });
 
-// API Routes
+// --------------------- AUTHENTICATION MIDDLEWARE ---------------------
+function requireAuth(req, res, next) {
+    const user_id = req.cookies.user_id || req.body.user_id || req.query.user_id;
+    
+    if (!user_id) {
+        return res.status(401).json({ error: "Authentication required" });
+    }
+    
+    req.user_id = user_id;
+    next();
+}
 
-// Get all tasks
-app.get("/api/tasks", async (req, res) => {
+// --------------------- AUTH ROUTES ---------------------
+app.post("/auth/google", async (req, res) => {
+    const { id_token } = req.body;
+    if (!id_token) return res.status(400).json({ success: false, message: "No id_token provided" });
+
     try {
-        const [rows] = await pool.query(`
-            SELECT * FROM ai_task_manager 
-            ORDER BY 
-                CASE 
-                    WHEN Status = 'Pending' THEN 1
-                    WHEN Status = 'Not Started' THEN 2
-                    WHEN Status = 'Completed' THEN 3
-                    ELSE 4
-                END,
-                DueDate ASC
-        `);
+        const googleResp = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${id_token}`);
+        const googleUser = await googleResp.json();
+        if (googleUser.error_description) {
+            return res.status(400).json({ success: false, message: googleUser.error_description });
+        }
+
+        const user_id = googleUser.sub;
+        const name = googleUser.name || null;
+        const email = googleUser.email || null;
+        const picture = googleUser.picture || null;
+
+        // Use task_users table (was incorrectly using `users`)
+        await pool.query(
+            `INSERT INTO task_users (user_id, name, email, picture)
+             VALUES (?, ?, ?, ?)
+             ON DUPLICATE KEY UPDATE name = VALUES(name), email = VALUES(email), picture = VALUES(picture)`,
+            [user_id, name, email, picture]
+        );
+
+        res.cookie("user_id", user_id, { httpOnly: true, maxAge: 7 * 24 * 60 * 60 * 1000 });
+        return res.json({ success: true, user: { user_id, name, email, picture } });
+    } catch (err) {
+        console.error("Google auth error:", err);
+        return res.status(500).json({ success: false, message: "Google login failed" });
+    }
+});
+
+app.post("/auth/login", async (req, res) => {
+    const { email, password } = req.body;
+    if (!email || !password) return res.status(400).json({ success: false, message: "All fields required" });
+
+    try {
+        // Query task_users (was mistakenly `users`)
+        const [rows] = await pool.query("SELECT * FROM task_users WHERE email = ? AND password = ? LIMIT 1", [email, password]);
+        if (rows.length === 0) return res.status(401).json({ success: false, message: "Invalid credentials" });
+
+        const user = rows[0];
+        res.cookie("user_id", user.user_id, { httpOnly: true, maxAge: 7 * 24 * 60 * 60 * 1000 });
+        return res.json({ success: true, user: { user_id: user.user_id, name: user.name, email: user.email, picture: user.picture } });
+    } catch (err) {
+        console.error("Login error:", err);
+        return res.status(500).json({ success: false, message: "Login failed" });
+    }
+});
+
+app.post("/auth/register", async (req, res) => {
+    const { name, email, password } = req.body;
+    if (!name || !email || !password) return res.status(400).json({ success: false, message: "All fields required" });
+
+    try {
+        // Check/insert into task_users (was mistakenly `users`)
+        const [existing] = await pool.query("SELECT 1 FROM task_users WHERE email = ? LIMIT 1", [email]);
+        if (existing.length > 0) return res.status(400).json({ success: false, message: "Email already registered" });
+
+        const user_id = randomUUID();
+        await pool.query("INSERT INTO task_users (user_id, name, email, password) VALUES (?, ?, ?, ?)", [user_id, name, email, password]);
+
+        res.cookie("user_id", user_id, { httpOnly: true, maxAge: 7 * 24 * 60 * 60 * 1000 });
+        return res.json({ success: true, user: { user_id, name, email } });
+    } catch (err) {
+        console.error("Register error:", err);
+        return res.status(500).json({ success: false, message: "Registration failed" });
+    }
+});
+
+app.post("/auth/logout", (req, res) => {
+    res.clearCookie("user_id");
+    res.json({ success: true, message: "Logged out successfully" });
+});
+
+// --------------------- PROTECTED API ROUTES ---------------------
+
+// Get all tasks for logged-in user
+app.get("/api/tasks", requireAuth, async (req, res) => {
+    try {
+        const [rows] = await pool.query(
+            `SELECT * FROM ai_task_manager 
+             WHERE user_id = ? 
+             ORDER BY 
+                 CASE 
+                     WHEN Status = 'Pending' THEN 1
+                     WHEN Status = 'Not Started' THEN 2
+                     WHEN Status = 'Completed' THEN 3
+                     ELSE 4
+                 END,
+                 DueDate ASC`,
+            [req.user_id]
+        );
         res.json(rows);
     } catch (err) {
         console.error("Error fetching tasks:", err);
@@ -70,20 +168,15 @@ app.get("/api/tasks", async (req, res) => {
     }
 });
 
-// Get task counts for dashboard
-app.get("/api/task-stats", async (req, res) => {
+// Get task stats for dashboard
+app.get("/api/task-stats", requireAuth, async (req, res) => {
     try {
-        const [result] = await pool.query(`
-            SELECT 
-                Status,
-                COUNT(*) as count,
-                Priority,
-                SUM(CASE WHEN DueDate <= CURDATE() + INTERVAL 3 DAY AND Status != 'Completed' THEN 1 ELSE 0 END) as urgent
-            FROM ai_task_manager 
-            GROUP BY Status, Priority
-        `);
+        // Get tasks for this user
+        const [tasks] = await pool.query(
+            "SELECT * FROM ai_task_manager WHERE user_id = ?",
+            [req.user_id]
+        );
         
-        // Process results for easier frontend consumption
         const stats = {
             byStatus: {
                 "Not Started": 0,
@@ -100,26 +193,39 @@ app.get("/api/task-stats", async (req, res) => {
             upcomingDeadlines: []
         };
         
-        result.forEach(row => {
-            stats.byStatus[row.Status] = (stats.byStatus[row.Status] || 0) + row.count;
-            if (row.Priority) {
-                stats.byPriority[row.Priority] = (stats.byPriority[row.Priority] || 0) + row.count;
+        tasks.forEach(task => {
+            // Status counts
+            stats.byStatus[task.Status] = (stats.byStatus[task.Status] || 0) + 1;
+            
+            // Priority counts
+            if (task.Priority) {
+                stats.byPriority[task.Priority] = (stats.byPriority[task.Priority] || 0) + 1;
             }
-            stats.total += row.count;
-            stats.urgent += row.urgent;
+            
+            // Urgent tasks (due in 3 days or less)
+            if (task.DueDate && task.Status !== 'Completed') {
+                const dueDate = new Date(task.DueDate);
+                const now = new Date();
+                const diffDays = Math.ceil((dueDate - now) / (1000 * 60 * 60 * 24));
+                
+                if (diffDays <= 3 && diffDays >= 0) {
+                    stats.urgent++;
+                }
+                
+                // Upcoming deadlines (next 7 days)
+                if (diffDays >= 0 && diffDays <= 7) {
+                    stats.upcomingDeadlines.push({
+                        ...task,
+                        days_remaining: diffDays
+                    });
+                }
+            }
         });
         
-        // Get upcoming deadlines
-        const [upcoming] = await pool.query(`
-            SELECT Title, DueDate, Status 
-            FROM ai_task_manager 
-            WHERE DueDate BETWEEN CURDATE() AND CURDATE() + INTERVAL 7 DAY 
-            AND Status != 'Completed'
-            ORDER BY DueDate ASC
-            LIMIT 10
-        `);
+        stats.total = tasks.length;
         
-        stats.upcomingDeadlines = upcoming;
+        // Sort upcoming deadlines
+        stats.upcomingDeadlines.sort((a, b) => a.days_remaining - b.days_remaining);
         
         res.json(stats);
     } catch (err) {
@@ -129,7 +235,7 @@ app.get("/api/task-stats", async (req, res) => {
 });
 
 // Update task status
-app.put("/api/tasks/:id", async (req, res) => {
+app.put("/api/tasks/:id", requireAuth, async (req, res) => {
     const { id } = req.params;
     const { Status, Priority } = req.body;
     
@@ -148,10 +254,15 @@ app.put("/api/tasks/:id", async (req, res) => {
             values.push(Priority);
         }
         
-        query += "WHERE TaskID = ?";
-        values.push(id);
+        query += "WHERE TaskID = ? AND user_id = ?";
+        values.push(id, req.user_id);
         
-        await pool.query(query, values);
+        const [result] = await pool.query(query, values);
+        
+        if (result.affectedRows === 0) {
+            return res.status(404).json({ error: "Task not found or access denied" });
+        }
+        
         res.json({ success: true, message: "Task updated successfully" });
     } catch (err) {
         console.error("Error updating task:", err);
@@ -160,11 +271,19 @@ app.put("/api/tasks/:id", async (req, res) => {
 });
 
 // Delete task
-app.delete("/api/tasks/:id", async (req, res) => {
+app.delete("/api/tasks/:id", requireAuth, async (req, res) => {
     const { id } = req.params;
     
     try {
-        await pool.query("DELETE FROM ai_task_manager WHERE TaskID = ?", [id]);
+        const [result] = await pool.query(
+            "DELETE FROM ai_task_manager WHERE TaskID = ? AND user_id = ?",
+            [id, req.user_id]
+        );
+        
+        if (result.affectedRows === 0) {
+            return res.status(404).json({ error: "Task not found or access denied" });
+        }
+        
         res.json({ success: true, message: "Task deleted successfully" });
     } catch (err) {
         console.error("Error deleting task:", err);
@@ -172,8 +291,8 @@ app.delete("/api/tasks/:id", async (req, res) => {
     }
 });
 
-// Chat with AI (Proxy to n8n webhook)
-app.post("/api/chat", async (req, res) => {
+// Chat with AI
+app.post("/api/chat", requireAuth, async (req, res) => {
     const { message } = req.body;
     const WEBHOOK_URL = "https://n8n-production-be6f.up.railway.app/webhook/17e8f3f1-996f-448c-86df-16a3ee302e96";
     
@@ -181,7 +300,10 @@ app.post("/api/chat", async (req, res) => {
         const response = await fetch(WEBHOOK_URL, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ message })
+            body: JSON.stringify({ 
+                message,
+                user_id: req.user_id 
+            })
         });
         
         let responseData;
@@ -201,39 +323,46 @@ app.post("/api/chat", async (req, res) => {
     }
 });
 
-// Get notifications (tasks due soon or overdue)
-app.get("/api/notifications", async (req, res) => {
+// Get notifications
+app.get("/api/notifications", requireAuth, async (req, res) => {
     try {
-        const [notifications] = await pool.query(`
-            SELECT 
+        const [tasks] = await pool.query(
+            `SELECT 
                 TaskID,
                 Title,
                 DueDate,
                 Status,
-                Priority,
-                DATEDIFF(DueDate, CURDATE()) as days_remaining
+                Priority
             FROM ai_task_manager 
             WHERE 
-                Status != 'Completed' 
+                user_id = ?
+                AND Status != 'Completed' 
                 AND DueDate IS NOT NULL
                 AND DueDate <= CURDATE() + INTERVAL 3 DAY
-            ORDER BY DueDate ASC
-        `);
+            ORDER BY DueDate ASC`,
+            [req.user_id]
+        );
         
-        // Format notifications
-        const formatted = notifications.map(task => {
+        const notifications = tasks.map(task => {
+            const dueDate = new Date(task.DueDate);
+            const now = new Date();
+            const daysRemaining = Math.ceil((dueDate - now) / (1000 * 60 * 60 * 24));
+            
             let message = '';
             let type = 'info';
             
-            if (task.days_remaining < 0) {
-                message = `"${task.Title}" is overdue by ${Math.abs(task.days_remaining)} days!`;
+            if (daysRemaining < 0) {
+                message = `"${task.Title}" is overdue by ${Math.abs(daysRemaining)} days!`;
                 type = 'urgent';
-            } else if (task.days_remaining === 0) {
+            } else if (daysRemaining === 0) {
                 message = `"${task.Title}" is due today!`;
                 type = 'warning';
-            } else if (task.days_remaining <= 2) {
-                message = `"${task.Title}" is due in ${task.days_remaining} days`;
+            } else if (daysRemaining <= 2) {
+                message = `"${task.Title}" is due in ${daysRemaining} days`;
                 type = 'warning';
+            } else {
+                message = `"${task.Title}" is due in ${daysRemaining} days`;
+                type = 'info';
             }
             
             return {
@@ -241,77 +370,55 @@ app.get("/api/notifications", async (req, res) => {
                 message,
                 type
             };
-        }).filter(n => n.message); // Only include tasks with notifications
+        }).filter(n => n.message);
         
-        res.json(formatted);
+        res.json(notifications);
     } catch (err) {
         console.error("Error fetching notifications:", err);
         res.status(500).json({ error: err.message });
     }
 });
 
-// Serve the main page for all routes (SPA) — redirect unauthenticated users to / (login)
-app.get("*", (req, res) => {
-    // If you use a cookie named "user_id" to mark logged-in users, check it here.
-    if (!req.cookies || !req.cookies.user_id) {
-        return res.redirect("/");
+// Check if user is authenticated
+app.get("/api/check-auth", (req, res) => {
+    const user_id = req.cookies.user_id;
+    
+    if (!user_id) {
+        return res.json({ authenticated: false });
+    }
+    
+    res.json({ 
+        authenticated: true,
+        user_id: user_id 
+    });
+});
+
+// Serve the main app (protected)
+app.get("/app", (req, res) => {
+    if (!req.cookies.user_id) {
+        return res.redirect("/login");
     }
     res.sendFile(path.join(__dirname, "public", "index.html"));
 });
 
-// --------------------- AUTH (Google + Register) ---------------------
-app.post("/auth/google", async (req, res) => {
-    const { id_token } = req.body;
-    if (!id_token) return res.status(400).json({ success: false, message: "No id_token provided" });
-
-    try {
-        // Verify token with Google
-        const googleResp = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${id_token}`);
-        const googleUser = await googleResp.json();
-        if (googleUser.error_description || googleUser.error) {
-            return res.status(400).json({ success: false, message: googleUser.error_description || googleUser.error });
-        }
-
-        const user_id = googleUser.sub;
-        const name = googleUser.name || null;
-        const email = googleUser.email || null;
-        const picture = googleUser.picture || null;
-
-        // Insert or update user record
-        await pool.query(
-            `INSERT INTO task_users (user_id, name, email, picture)
-             VALUES (?, ?, ?, ?)
-             ON DUPLICATE KEY UPDATE name = VALUES(name), email = VALUES(email), picture = VALUES(picture)`,
-            [user_id, name, email, picture]
-        );
-
-        // Set httpOnly cookie to mark session (server-side guard)
-        res.cookie("user_id", user_id, { httpOnly: true, maxAge: 7 * 24 * 60 * 60 * 1000 });
-
-        return res.json({ success: true, user: { user_id, name, email, picture } });
-    } catch (err) {
-        console.error("Auth (google) error:", err);
-        return res.status(500).json({ success: false, message: "Google auth failed" });
+// Handle all other routes - serve index.html for SPA
+app.get("*", (req, res) => {
+    // For API routes, return 404
+    if (req.path.startsWith("/api/")) {
+        return res.status(404).json({ error: "API endpoint not found" });
     }
-});
-
-app.post("/auth/register", async (req, res) => {
-    const { name, email, password } = req.body;
-    if (!name || !email || !password) return res.status(400).json({ success: false, message: "All fields required" });
-
-    try {
-        const [exists] = await pool.query("SELECT 1 FROM task_users WHERE email = ? LIMIT 1", [email]);
-        if (exists.length > 0) return res.status(400).json({ success: false, message: "Email already registered" });
-
-        const user_id = require("crypto").randomUUID();
-        await pool.query("INSERT INTO task_users (user_id, name, email, password) VALUES (?, ?, ?, ?)", [user_id, name, email, password]);
-
-        res.cookie("user_id", user_id, { httpOnly: true, maxAge: 7 * 24 * 60 * 60 * 1000 });
-        return res.json({ success: true, user: { user_id, name, email } });
-    } catch (err) {
-        console.error("Auth (register) error:", err);
-        return res.status(500).json({ success: false, message: "Registration failed" });
+    
+    // For HTML routes, check authentication
+    if (req.path === "/" || req.path === "/login" || req.path === "/register") {
+        return res.sendFile(path.join(__dirname, "public", req.path.substring(1) + ".html"));
     }
+    
+    // For app routes, require authentication
+    if (!req.cookies.user_id) {
+        return res.redirect("/login");
+    }
+    
+    res.sendFile(path.join(__dirname, "public", "index.html"));
 });
 
 // Start server

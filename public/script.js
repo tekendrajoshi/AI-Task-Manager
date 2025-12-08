@@ -55,10 +55,9 @@ app.post('/auth/google', async (req, res) => {
         const email = googleUser.email;
         const picture = googleUser.picture;
 
-        // Check if user exists
+        // Ensure we use task_users table (not `users`)
         const [rows] = await db.execute('SELECT * FROM task_users WHERE user_id = ?', [user_id]);
         if (rows.length === 0) {
-            // Insert new user
             await db.execute(
                 'INSERT INTO task_users (user_id, name, email, picture, password) VALUES (?, ?, ?, ?, NULL)',
                 [user_id, name, email, picture]
@@ -72,12 +71,36 @@ app.post('/auth/google', async (req, res) => {
     }
 });
 
+// ------------------- MANUAL LOGIN -------------------
+app.post('/auth/login', async (req, res) => {
+    const { email, password } = req.body;
+    if (!email || !password) return res.json({ success: false, message: 'All fields required' });
+
+    try {
+        // Query task_users (was incorrectly `users`)
+        const [rows] = await db.execute('SELECT * FROM task_users WHERE email = ? AND password = ?', [email, password]);
+        if (rows.length === 0) return res.json({ success: false, message: 'Invalid credentials' });
+
+        const user = rows[0];
+        res.json({ success: true, user: { 
+            user_id: user.user_id, 
+            name: user.name, 
+            email: user.email, 
+            picture: user.picture 
+        } });
+    } catch (err) {
+        console.error(err);
+        res.json({ success: false, message: 'Login failed' });
+    }
+});
+
 // ------------------- MANUAL REGISTER -------------------
 app.post('/auth/register', async (req, res) => {
     const { name, email, password } = req.body;
     if (!name || !email || !password) return res.json({ success: false, message: 'All fields required' });
 
     try {
+        // Use task_users table here as well
         const [rows] = await db.execute('SELECT * FROM task_users WHERE email = ?', [email]);
         if (rows.length > 0) return res.json({ success: false, message: 'Email already registered' });
 
@@ -96,11 +119,9 @@ app.post('/auth/register', async (req, res) => {
 
 // ------------------- MIDDLEWARE TO CHECK user_id -------------------
 function requireUserId(req, res, next) {
-    // GET requests → user_id in query
-    // POST requests → user_id in body
     const user_id = req.query.user_id || req.body.user_id;
     if (!user_id) return res.status(400).json({ error: 'Missing user_id' });
-    req.user_id = user_id; // attach to request for easy use
+    req.user_id = user_id;
     next();
 }
 
@@ -182,7 +203,8 @@ app.get('/api/notifications', requireUserId, async (req, res) => {
                 TaskID: task.TaskID,
                 Title: task.Title,
                 message: `Task "${task.Title}" is due soon!`,
-                type: 'urgent'
+                type: 'urgent',
+                DueDate: task.DueDate
             }));
         res.json(notifications);
     } catch (err) {
@@ -211,20 +233,3 @@ app.post('/api/chat', requireUserId, async (req, res) => {
 // ------------------- START SERVER -------------------
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
-
-// Minimal client-side script: redirect to login if not authenticated and protect index UI.
-
-window.addEventListener("load", () => {
-  const path = window.location.pathname;
-  const isIndex = path === "/" || path.endsWith("/index.html");
-  const userId = localStorage.getItem("user_id");
-
-  if (isIndex && !userId) {
-    // User not logged in client-side — redirect to login page.
-    window.location.href = "/login";
-    return;
-  }
-
-  // Placeholder for other client-side initialization (charts, tasks, chat)
-  console.log("Client script initialized. user_id:", userId);
-});

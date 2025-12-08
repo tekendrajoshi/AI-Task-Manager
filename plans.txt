@@ -147,3 +147,14 @@ return items.map(item => {
         }
     };
 });
+
+
+
+
+
+
+
+
+
+
+now the login system is fully working this shouldnt be interrupted or dont make any changes on that only problem is , now its being logged in and correctly directed to index.html but in html the sub pages like Tasks, Talk to AI, and Notifications are not opening even on clicking them from the nav bar nothing is being happened just the dashboard is being shows  you have to solve the problem but i once again repeat the other should not be changed there is huge things if u change even a slight it might collapse whole system plz just check what the problem is due to and just solve that specific problem other dont do any unnecessary changes that create problem in login system, database connection api handeling and data sending to backend or to the n8n ..... just check why the nav sections are not being shown 
