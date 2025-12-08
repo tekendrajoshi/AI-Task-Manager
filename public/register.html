@@ -1,56 +1,87 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <title>Register - AI Task Manager</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="stylesheet" href="styles.css">
+<meta charset="utf-8">
+<title>Register - TaskAI</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="stylesheet" href="styles.css">
+<style>
+body{background:linear-gradient(135deg,#2b1055,#0f0528);color:#fff;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
+.register-container{width:420px;background:rgba(255,255,255,0.06);padding:28px;border-radius:14px;text-align:center}
+.app-title{margin-bottom:8px}
+.title{font-size:26px;font-weight:700;background:linear-gradient(45deg,#00ffd5,#ff00c8);-webkit-background-clip:text;background-clip:text;color:transparent}
+.subtitle{font-size:12px;font-style:italic;color:rgba(255,255,255,0.75);margin-bottom:6px}
+label{display:block;text-align:left;margin-top:10px;color:rgba(255,255,255,0.9)}
+input{width:100%;padding:10px;border-radius:8px;border:1px solid rgba(255,255,255,0.06);background:rgba(255,255,255,0.02);color:#fff;margin-top:6px}
+button.primary{width:100%;margin-top:14px;padding:10px;border-radius:10px;border:0;background:linear-gradient(90deg,#00ffd5,#ff00c8);color:#111;font-weight:700;cursor:pointer}
+.error{color:#ff8aa1;margin-top:8px}
+.small{font-size:13px;margin-top:10px;color:rgba(255,255,255,0.8)}
+</style>
 </head>
 <body>
-    <div class="register-container">
-        <h2>Create Account</h2>
-        <form id="register-form">
-            <label>Name</label>
-            <input type="text" name="name" required>
+<div class="register-container">
+  <div class="app-title">
+    <div class="title">TaskAI</div>
+    <div class="subtitle">AI task Manager</div>
+  </div>
 
-            <label>Email</label>
-            <input type="email" name="email" required>
+  <h2>Create Account</h2>
+  <form id="register-form">
+    <label for="r-name">Name</label>
+    <input id="r-name" name="name" required>
+    <label for="r-email">Email</label>
+    <input id="r-email" name="email" type="email" required>
+    <label for="r-password">Password</label>
+    <input id="r-password" name="password" type="password" required>
+    <button class="primary" type="submit">Register</button>
+    <div id="register-error" class="error" style="display:none"></div>
+  </form>
 
-            <label>Password</label>
-            <input type="password" name="password" required>
+  <div class="small">Already have an account? <a href="login.html" style="color:#00ffd5">Login</a></div>
+</div>
 
-            <button type="submit">Register</button>
-        </form>
-        <p>Already have an account? <a href="login.html">Login</a></p>
-    </div>
+<script src="script.js"></script>
+<script>
+function showRegisterError(msg){
+  const el = document.getElementById('register-error');
+  el.textContent = msg;
+  el.style.display = msg ? 'block' : 'none';
+}
 
-    <script>
-        document.getElementById('register-form').addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const formData = new FormData(e.target);
-            const data = {
-                name: formData.get('name'),
-                email: formData.get('email'),
-                password: formData.get('password')
-            };
 
-            try {
-                const res = await fetch('/auth/register', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(data)
-                });
-                const result = await res.json();
-                if (result.success) {
-                    alert('Registration successful! Please login.');
-                    window.location.href = 'login.html';
-                } else {
-                    alert('Registration failed: ' + result.message);
-                }
-            } catch (err) {
-                console.error(err);
-            }
+
+/* Handle registration form submission ========================================================*/
+// In register.html - update the form submission handler
+document.getElementById('register-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    showRegisterError('');
+    const name = document.getElementById('r-name').value.trim();
+    const email = document.getElementById('r-email').value.trim();
+    const password = document.getElementById('r-password').value;
+    
+    try {
+        const response = await fetch('/auth/register', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ name, email, password }),
+            credentials: 'include' // Important for cookies
         });
-    </script>
+        
+        const result = await response.json();
+        
+        if (result && result.success) {
+            // Server sets the cookie, now redirect to index.html
+            window.location.href = '/index.html';
+        } else {
+            showRegisterError(result?.message || 'Registration failed');
+        }
+    } catch (err) {
+        showRegisterError('Network error. Please try again.');
+        console.error(err);
+    }
+});
+</script>
 </body>
 </html>

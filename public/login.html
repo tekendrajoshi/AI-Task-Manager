@@ -1,67 +1,141 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <title>Login - AI Task Manager</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="stylesheet" href="styles.css">
-    <script src="https://accounts.google.com/gsi/client" async defer></script>
+<meta charset="UTF-8">
+<title>Login - TaskAI</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="stylesheet" href="styles.css">
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<style>
+/* keep previous styles and add small tweaks */
+*{box-sizing:border-box;font-family:"Poppins",sans-serif}
+body{background:linear-gradient(135deg,#2b1055,#0f0528);color:#fff;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
+.login-container{width:380px;background:rgba(255,255,255,0.06);backdrop-filter:blur(10px);padding:32px;border-radius:16px;box-shadow:0 8px 30px rgba(0,0,0,0.6);text-align:center}
+.app-title{display:flex;flex-direction:column;align-items:center;gap:4px;margin-bottom:12px}
+.app-title .title{font-size:28px;font-weight:700;background:linear-gradient(45deg,#00ffd5,#ff00c8);-webkit-background-clip:text;background-clip:text;color:transparent}
+.app-title .subtitle{font-size:12px;font-style:italic;color:rgba(255,255,255,0.75)}
+h2{margin:6px 0 18px;font-size:20px}
+.form-box{background:rgba(0,0,0,0.18);padding:14px;border-radius:12px;margin-bottom:14px;text-align:left}
+.form-row{margin-bottom:12px}
+label{display:block;font-size:13px;color:rgba(255,255,255,0.85);margin-bottom:6px}
+input[type="email"],input[type="password"]{width:100%;padding:10px 12px;border-radius:8px;border:1px solid rgba(255,255,255,0.08);background:rgba(255,255,255,0.03);color:#fff}
+button.primary{width:100%;padding:10px;border-radius:10px;border:0;background:linear-gradient(90deg,#00ffd5,#ff00c8);color:#111;font-weight:700;cursor:pointer}
+.small-note{font-size:13px;margin-top:12px;color:rgba(255,255,255,0.8)}
+.g_id_signin{margin-top:12px;display:flex;justify-content:center}
+.error{color:#ff8aa1;margin-top:8px;font-size:13px}
+</style>
 </head>
 <body>
-    <div class="login-container">
-        <h2>Welcome Back!</h2>
+<div class="login-container">
+  <div class="app-title">
+    <div class="title">TaskAI</div>
+    <div class="subtitle">AI task Manager</div>
+  </div>
+
+  <h2>Welcome Back</h2>
+
+  <div class="form-box">
+    <form id="manual-login-form">
+      <div class="form-row">
+        <label for="email">Email</label>
+        <input id="email" name="email" type="email" required>
+      </div>
+      <div class="form-row">
+        <label for="password">Password</label>
+        <input id="password" name="password" type="password" required>
+      </div>
+      <button class="primary" type="submit">Sign in</button>
+      <div id="login-error" class="error" role="alert" style="display:none"></div>
+    </form>
+  </div>
+
+  <div class="small-note">Or continue with</div>
+
+  <!-- Google Sign-In -->
+  <div id="g_id_onload"
+       data-client_id="417160946652-c27t0f9f0ls0febl59u1iu90jo08okha.apps.googleusercontent.com"
+       data-auto_prompt="false">
+  </div>
+  <div class="g_id_signin"
+       data-type="standard"
+       data-shape="rectangular"
+       data-theme="outline"
+       data-text="signin_with"
+       data-size="large"
+       data-logo_alignment="left"></div>
+
+  <p class="small-note">Don't have an account? <a href="register.html" style="color:#00ffd5">Register</a></p>
+</div>
+
+<script src="script.js"></script>
+<script>
+function showError(msg){
+  const el = document.getElementById('login-error');
+  el.textContent = msg;
+  el.style.display = msg ? 'block' : 'none';
+}
+
+// In login.html - update the manual login handler
+document.getElementById('manual-login-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    showError('');
+    const email = document.getElementById('email').value.trim();
+    const password = document.getElementById('password').value;
+    
+    try {
+        const response = await fetch('/auth/login', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ email, password }),
+            credentials: 'include' // Important for cookies
+        });
         
-        <!-- Google Sign-In button -->
-        <div id="g_id_onload"
-             data-client_id="417160946652-c27t0f9f0ls0febl59u1iu90jo08okha.apps.googleusercontent.com"
-             data-login_uri="/auth/google"
-             data-auto_prompt="false">
-        </div>
-
-        <div class="g_id_signin"
-             data-type="standard"
-             data-shape="rectangular"
-             data-theme="outline"
-             data-text="signin_with"
-             data-size="large"
-             data-logo_alignment="left">
-        </div>
-
-        <p>Or <a href="register.html">Register</a> if you don't have an account.</p>
-    </div>
-
-    <script>
-        function handleCredentialResponse(response) {
-            fetch('/auth/google', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ id_token: response.credential })
-            })
-            .then(res => res.json())
-            .then(data => {
-                if (data.success) {
-                    localStorage.setItem('user_id', data.user.user_id);
-                    localStorage.setItem('user_name', data.user.name);
-                    window.location.href = 'index.html';
-                } else {
-                    alert('Login failed: ' + data.message);
-                }
-            })
-            .catch(err => console.error(err));
+        const result = await response.json();
+        
+        if (result && result.success) {
+            // Server sets the cookie, now redirect to index.html
+            window.location.href = '/index.html';
+        } else {
+            showError(result?.message || 'Login failed');
         }
+    } catch(err) {
+        showError('Network error. Please try again.');
+        console.error(err);
+    }
+});
 
-        window.onload = function () {
-            google.accounts.id.initialize({
-                client_id: '417160946652-c27t0f9f0ls0febl59u1iu90jo08okha.apps.googleusercontent.com',
-                callback: handleCredentialResponse
-            });
-            google.accounts.id.renderButton(
-                document.querySelector(".g_id_signin"),
-                { theme: "outline", size: "large" }
-            );
-            // Optional: show One Tap if desired
-            // google.accounts.id.prompt();
-        };
-    </script>
+// Also update Google login callback
+function handleCredentialResponse(response) {
+    fetch('/auth/google', {
+        method: 'POST',
+        credentials: 'include', // Important for cookies
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ id_token: response.credential })
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            // Redirect to index.html
+            window.location.href = '/index.html';
+        } else {
+            showError(data.message || 'Google login failed');
+        }
+    })
+    .catch(err => {
+        showError('Google login network error');
+        console.error(err);
+    });
+}
+
+window.onload = function(){
+  google.accounts.id.initialize({
+    client_id: '417160946652-c27t0f9f0ls0febl59u1iu90jo08okha.apps.googleusercontent.com',
+    callback: handleCredentialResponse
+  });
+  google.accounts.id.renderButton(document.querySelector(".g_id_signin"), { theme: "outline", size: "large" });
+};
+</script>
 </body>
 </html>

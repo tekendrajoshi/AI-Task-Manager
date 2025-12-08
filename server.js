@@ -2,9 +2,9 @@ const express = require("express");
 const mysql = require("mysql2/promise");
 const cors = require("cors");
 const path = require("path");
-const cookieParser = require("cookie-parser"); // <--- added
-// const fetch = require("node-fetch");    // removed — use global fetch (Node 18+)
+const cookieParser = require("cookie-parser");
 const { randomUUID } = require("crypto");
+const bcrypt = require("bcrypt");
 require("dotenv").config();
 
 const app = express();
@@ -16,22 +16,6 @@ app.use(cors({
 }));
 app.use(express.json());
 app.use(cookieParser());
-
-// Serve login at root
-app.get("/", (req, res) => {
-    res.sendFile(path.join(__dirname, "public", "login.html"));
-});
-
-app.get("/login", (req, res) => {
-    res.sendFile(path.join(__dirname, "public", "login.html"));
-});
-
-app.get("/register", (req, res) => {
-    res.sendFile(path.join(__dirname, "public", "register.html"));
-});
-
-// Serve static files
-app.use(express.static("public"));
 
 // Database configuration
 const pool = mysql.createPool({
@@ -68,6 +52,7 @@ function requireAuth(req, res, next) {
 }
 
 // --------------------- AUTH ROUTES ---------------------
+// Google Login
 app.post("/auth/google", async (req, res) => {
     const { id_token } = req.body;
     if (!id_token) return res.status(400).json({ success: false, message: "No id_token provided" });
@@ -75,6 +60,7 @@ app.post("/auth/google", async (req, res) => {
     try {
         const googleResp = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${id_token}`);
         const googleUser = await googleResp.json();
+        
         if (googleUser.error_description) {
             return res.status(400).json({ success: false, message: googleUser.error_description });
         }
@@ -84,57 +70,162 @@ app.post("/auth/google", async (req, res) => {
         const email = googleUser.email || null;
         const picture = googleUser.picture || null;
 
-        // Use task_users table (was incorrectly using `users`)
-        await pool.query(
-            `INSERT INTO task_users (user_id, name, email, picture)
-             VALUES (?, ?, ?, ?)
-             ON DUPLICATE KEY UPDATE name = VALUES(name), email = VALUES(email), picture = VALUES(picture)`,
-            [user_id, name, email, picture]
-        );
+        // Check if user exists, insert if not
+        const [existing] = await pool.query("SELECT user_id FROM task_users WHERE user_id = ?", [user_id]);
+        
+        if (existing.length === 0) {
+            await pool.query(
+                `INSERT INTO task_users (user_id, name, email, picture) VALUES (?, ?, ?, ?)`,
+                [user_id, name, email, picture]
+            );
+        } else {
+            // Update user info if already exists
+            await pool.query(
+                `UPDATE task_users SET name = ?, email = ?, picture = ? WHERE user_id = ?`,
+                [name, email, picture, user_id]
+            );
+        }
 
-        res.cookie("user_id", user_id, { httpOnly: true, maxAge: 7 * 24 * 60 * 60 * 1000 });
-        return res.json({ success: true, user: { user_id, name, email, picture } });
+        // Set cookie with user_id
+        res.cookie("user_id", user_id, { 
+            httpOnly: true, 
+            secure: process.env.NODE_ENV === "production",
+            sameSite: "lax",
+            maxAge: 7 * 24 * 60 * 60 * 1000 
+        });
+        
+        return res.json({ 
+            success: true, 
+            user: { 
+                user_id, 
+                name, 
+                email, 
+                picture 
+            } 
+        });
     } catch (err) {
         console.error("Google auth error:", err);
         return res.status(500).json({ success: false, message: "Google login failed" });
     }
 });
 
+// Manual Login
 app.post("/auth/login", async (req, res) => {
     const { email, password } = req.body;
-    if (!email || !password) return res.status(400).json({ success: false, message: "All fields required" });
+    
+    if (!email || !password) {
+        return res.status(400).json({ success: false, message: "Email and password are required" });
+    }
 
     try {
-        // Query task_users (was mistakenly `users`)
-        const [rows] = await pool.query("SELECT * FROM task_users WHERE email = ? AND password = ? LIMIT 1", [email, password]);
-        if (rows.length === 0) return res.status(401).json({ success: false, message: "Invalid credentials" });
+        // Query user by email
+        const [rows] = await pool.query(
+            "SELECT * FROM task_users WHERE email = ? LIMIT 1", 
+            [email]
+        );
+        
+        if (rows.length === 0) {
+            return res.status(401).json({ success: false, message: "Invalid email or password" });
+        }
 
         const user = rows[0];
-        res.cookie("user_id", user.user_id, { httpOnly: true, maxAge: 7 * 24 * 60 * 60 * 1000 });
-        return res.json({ success: true, user: { user_id: user.user_id, name: user.name, email: user.email, picture: user.picture } });
+        
+        // Check if password exists (for Google users who haven't set password)
+        if (!user.password) {
+            return res.status(401).json({ success: false, message: "Please login with Google or reset your password" });
+        }
+
+        // Compare password with bcrypt
+        const passwordMatch = await bcrypt.compare(password, user.password);
+        
+        if (!passwordMatch) {
+            return res.status(401).json({ success: false, message: "Invalid email or password" });
+        }
+
+        // Set cookie
+        res.cookie("user_id", user.user_id, { 
+            httpOnly: true, 
+            secure: process.env.NODE_ENV === "production",
+            sameSite: "lax",
+            maxAge: 7 * 24 * 60 * 60 * 1000 
+        });
+        
+        return res.json({ 
+            success: true, 
+            user: { 
+                user_id: user.user_id, 
+                name: user.name, 
+                email: user.email, 
+                picture: user.picture 
+            } 
+        });
     } catch (err) {
         console.error("Login error:", err);
         return res.status(500).json({ success: false, message: "Login failed" });
     }
 });
 
+// Registration
 app.post("/auth/register", async (req, res) => {
     const { name, email, password } = req.body;
-    if (!name || !email || !password) return res.status(400).json({ success: false, message: "All fields required" });
+    
+    // Validate input
+    if (!name || !email || !password) {
+        return res.status(400).json({ success: false, message: "All fields are required" });
+    }
+    
+    if (password.length < 6) {
+        return res.status(400).json({ success: false, message: "Password must be at least 6 characters" });
+    }
+    
+    if (!email.includes("@") || !email.includes(".")) {
+        return res.status(400).json({ success: false, message: "Invalid email format" });
+    }
 
     try {
-        // Check/insert into task_users (was mistakenly `users`)
-        const [existing] = await pool.query("SELECT 1 FROM task_users WHERE email = ? LIMIT 1", [email]);
-        if (existing.length > 0) return res.status(400).json({ success: false, message: "Email already registered" });
+        // Check if email already exists
+        const [existing] = await pool.query(
+            "SELECT user_id FROM task_users WHERE email = ? LIMIT 1", 
+            [email]
+        );
+        
+        if (existing.length > 0) {
+            return res.status(409).json({ success: false, message: "Email already registered" });
+        }
 
+        // Generate unique user_id
         const user_id = randomUUID();
-        await pool.query("INSERT INTO task_users (user_id, name, email, password) VALUES (?, ?, ?, ?)", [user_id, name, email, password]);
+        
+        // Hash password
+        const saltRounds = 10;
+        const hashedPassword = await bcrypt.hash(password, saltRounds);
 
-        res.cookie("user_id", user_id, { httpOnly: true, maxAge: 7 * 24 * 60 * 60 * 1000 });
-        return res.json({ success: true, user: { user_id, name, email } });
+        // Insert user into database
+        await pool.query(
+            `INSERT INTO task_users (user_id, name, email, picture, password) 
+             VALUES (?, ?, ?, NULL, ?)`,
+            [user_id, name, email, hashedPassword]
+        );
+
+        // Set cookie
+        res.cookie("user_id", user_id, { 
+            httpOnly: true, 
+            secure: process.env.NODE_ENV === "production",
+            sameSite: "lax",
+            maxAge: 7 * 24 * 60 * 60 * 1000 
+        });
+        
+        return res.json({ 
+            success: true, 
+            user: { 
+                user_id, 
+                name, 
+                email 
+            } 
+        });
     } catch (err) {
-        console.error("Register error:", err);
-        return res.status(500).json({ success: false, message: "Registration failed" });
+        console.error("Registration error:", err);
+        return res.status(500).json({ success: false, message: "Registration failed. Please try again." });
     }
 });
 
@@ -144,7 +235,6 @@ app.post("/auth/logout", (req, res) => {
 });
 
 // --------------------- PROTECTED API ROUTES ---------------------
-
 // Get all tasks for logged-in user
 app.get("/api/tasks", requireAuth, async (req, res) => {
     try {
@@ -296,23 +386,11 @@ app.post("/api/chat", requireAuth, async (req, res) => {
     const { message } = req.body || {};
     const WEBHOOK_URL = "https://n8n-production-be6f.up.railway.app/webhook/17e8f3f1-996f-448c-86df-16a3ee302e96";
 
-    console.log("POST /api/chat — incoming:", {
-        user_id: req.user_id,
-        hasMessage: !!message,
-        messageSample: typeof message === "string" ? message.slice(0, 200) : null,
-        headers: {
-            host: req.headers.host,
-            "content-type": req.headers["content-type"]
-        }
-    });
-
     if (!message) {
-        console.warn("No message provided in body");
         return res.status(400).json({ error: "No message provided" });
     }
 
     try {
-        // Fetch basic user info from DB to include in payload
         let userInfo = { user_id: req.user_id };
         try {
             const [rows] = await pool.query("SELECT user_id, name, email FROM task_users WHERE user_id = ? LIMIT 1", [req.user_id]);
@@ -327,8 +405,6 @@ app.post("/api/chat", requireAuth, async (req, res) => {
             user: userInfo,
             timestamp: new Date().toISOString()
         };
-
-        console.log("Sending to n8n webhook — payload preview:", JSON.stringify(outgoingPayload).slice(0, 1000));
 
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 10000);
@@ -350,8 +426,6 @@ app.post("/api/chat", requireAuth, async (req, res) => {
         const text = await response.text().catch(() => null);
         let body;
         try { body = ct.includes("application/json") ? JSON.parse(text) : text; } catch (e) { body = text; }
-
-        console.log("n8n webhook response:", { status, bodyPreview: typeof text === "string" ? text.slice(0, 1000) : text });
 
         if (status < 200 || status >= 300) {
             return res.status(502).json({ error: "Webhook returned non-2xx", status, body });
@@ -435,32 +509,60 @@ app.get("/api/check-auth", (req, res) => {
     });
 });
 
-// Serve the main app (protected)
-app.get("/app", (req, res) => {
+// --------------------- HTML ROUTES ---------------------
+// Serve specific HTML files directly
+app.get("/", (req, res) => {
+    res.sendFile(path.join(__dirname, "public", "login.html"));
+});
+
+app.get("/login.html", (req, res) => {
+    res.sendFile(path.join(__dirname, "public", "login.html"));
+});
+
+app.get("/register.html", (req, res) => {
+    res.sendFile(path.join(__dirname, "public", "register.html"));
+});
+
+app.get("/index.html", (req, res) => {
+    // Check if user is authenticated
     if (!req.cookies.user_id) {
-        return res.redirect("/login");
+        return res.redirect("/login.html");
     }
     res.sendFile(path.join(__dirname, "public", "index.html"));
 });
 
-// Handle all other routes - serve index.html for SPA
+// Serve static files (CSS, JS, etc.) - IMPORTANT: This must come AFTER specific routes
+app.use(express.static("public"));
+
+// Catch-all route for SPA - redirect to login if not authenticated
 app.get("*", (req, res) => {
     // For API routes, return 404
     if (req.path.startsWith("/api/")) {
         return res.status(404).json({ error: "API endpoint not found" });
     }
     
-    // For HTML routes, check authentication
-    if (req.path === "/" || req.path === "/login" || req.path === "/register") {
-        return res.sendFile(path.join(__dirname, "public", req.path.substring(1) + ".html"));
+    // Check if the file exists in public folder
+    const filePath = path.join(__dirname, "public", req.path);
+    const fs = require("fs");
+    
+    if (fs.existsSync(filePath) && !req.path.includes(".html")) {
+        // Serve the static file if it exists
+        return res.sendFile(filePath);
     }
     
-    // For app routes, require authentication
-    if (!req.cookies.user_id) {
-        return res.redirect("/login");
+    // For authenticated users trying to access app routes
+    if (req.cookies.user_id) {
+        // Check if they're trying to access login/register pages
+        if (req.path === "/login" || req.path === "/login.html" || 
+            req.path === "/register" || req.path === "/register.html") {
+            return res.redirect("/index.html");
+        }
+        // Otherwise serve index.html for SPA routes
+        return res.sendFile(path.join(__dirname, "public", "index.html"));
+    } else {
+        // Not authenticated - redirect to login
+        return res.redirect("/login.html");
     }
-    
-    res.sendFile(path.join(__dirname, "public", "index.html"));
 });
 
 // Start server
@@ -468,4 +570,5 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
     console.log(`🚀 Server running on port ${PORT}`);
     console.log(`🌐 Open http://localhost:${PORT} in your browser`);
+    console.log(`🔐 You will see the login page first`);
 });

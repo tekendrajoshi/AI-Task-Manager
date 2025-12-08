@@ -4,6 +4,9 @@ const path = require('path');
 const fetch = require('node-fetch');
 const { v4: uuidv4 } = require('uuid');
 const mysql = require('mysql2/promise');
+const bcrypt = require('bcrypt'); // added for secure password hashing
+
+const SALT_ROUNDS = 12;
 
 // ------------------- DATABASE CONNECTION -------------------
 const dbConfig = {
@@ -77,11 +80,14 @@ app.post('/auth/login', async (req, res) => {
     if (!email || !password) return res.json({ success: false, message: 'All fields required' });
 
     try {
-        // Query task_users (was incorrectly `users`)
-        const [rows] = await db.execute('SELECT * FROM task_users WHERE email = ? AND password = ?', [email, password]);
+        // Query by email only, then compare hashed password
+        const [rows] = await db.execute('SELECT * FROM task_users WHERE email = ?', [email]);
         if (rows.length === 0) return res.json({ success: false, message: 'Invalid credentials' });
 
         const user = rows[0];
+        const match = await bcrypt.compare(password, user.password || '');
+        if (!match) return res.json({ success: false, message: 'Invalid credentials' });
+
         res.json({ success: true, user: { 
             user_id: user.user_id, 
             name: user.name, 
@@ -96,24 +102,30 @@ app.post('/auth/login', async (req, res) => {
 
 // ------------------- MANUAL REGISTER -------------------
 app.post('/auth/register', async (req, res) => {
-    const { name, email, password } = req.body;
-    if (!name || !email || !password) return res.json({ success: false, message: 'All fields required' });
+    const { name, email, password, user_id } = req.body;
+    if (!name || !email || !password) return res.status(400).json({ success: false, message: 'All fields required' });
 
     try {
-        // Use task_users table here as well
-        const [rows] = await db.execute('SELECT * FROM task_users WHERE email = ?', [email]);
-        if (rows.length > 0) return res.json({ success: false, message: 'Email already registered' });
+        // Check existing email
+        const [rows] = await db.execute('SELECT 1 FROM task_users WHERE email = ?', [email]);
+        if (rows.length > 0) return res.status(409).json({ success: false, message: 'Email already registered' });
 
-        const user_id = uuidv4();
+        // Use provided user_id when available (to align with Google flow), otherwise generate one
+        const uid = user_id || uuidv4();
+
+        // Hash password before storing
+        const hashed = await bcrypt.hash(password, SALT_ROUNDS);
+
         await db.execute(
             'INSERT INTO task_users (user_id, name, email, picture, password) VALUES (?, ?, ?, NULL, ?)',
-            [user_id, name, email, password]
+            [uid, name, email, hashed]
         );
 
-        res.json({ success: true, user_id });
+        // Do not return password. Return user_id so frontend can keep continuity
+        res.json({ success: true, user_id: uid });
     } catch (err) {
         console.error(err);
-        res.json({ success: false, message: 'Registration failed' });
+        res.status(500).json({ success: false, message: 'Registration failed' });
     }
 });
 
