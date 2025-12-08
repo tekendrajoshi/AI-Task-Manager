@@ -293,33 +293,75 @@ app.delete("/api/tasks/:id", requireAuth, async (req, res) => {
 
 // Chat with AI
 app.post("/api/chat", requireAuth, async (req, res) => {
-    const { message } = req.body;
+    const { message } = req.body || {};
     const WEBHOOK_URL = "https://n8n-production-be6f.up.railway.app/webhook/17e8f3f1-996f-448c-86df-16a3ee302e96";
-    
+
+    console.log("POST /api/chat — incoming:", {
+        user_id: req.user_id,
+        hasMessage: !!message,
+        messageSample: typeof message === "string" ? message.slice(0, 200) : null,
+        headers: {
+            host: req.headers.host,
+            "content-type": req.headers["content-type"]
+        }
+    });
+
+    if (!message) {
+        console.warn("No message provided in body");
+        return res.status(400).json({ error: "No message provided" });
+    }
+
     try {
+        // Fetch basic user info from DB to include in payload
+        let userInfo = { user_id: req.user_id };
+        try {
+            const [rows] = await pool.query("SELECT user_id, name, email FROM task_users WHERE user_id = ? LIMIT 1", [req.user_id]);
+            if (rows && rows.length > 0) userInfo = rows[0];
+        } catch (dbErr) {
+            console.warn("Failed to load user info for webhook payload:", dbErr?.message || dbErr);
+        }
+
+        const outgoingPayload = {
+            message,
+            user_id: req.user_id,
+            user: userInfo,
+            timestamp: new Date().toISOString()
+        };
+
+        console.log("Sending to n8n webhook — payload preview:", JSON.stringify(outgoingPayload).slice(0, 1000));
+
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 10000);
+
         const response = await fetch(WEBHOOK_URL, {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ 
-                message,
-                user_id: req.user_id 
-            })
+            headers: {
+                "Content-Type": "application/json",
+                "X-User-ID": req.user_id
+            },
+            body: JSON.stringify(outgoingPayload),
+            signal: controller.signal
         });
-        
-        let responseData;
-        const contentType = response.headers.get("content-type");
-        
-        if (contentType && contentType.includes("application/json")) {
-            responseData = await response.json();
-        } else {
-            const text = await response.text();
-            responseData = { response: text || "No reply received" };
+
+        clearTimeout(timeout);
+
+        const status = response.status;
+        const ct = response.headers.get("content-type") || "";
+        const text = await response.text().catch(() => null);
+        let body;
+        try { body = ct.includes("application/json") ? JSON.parse(text) : text; } catch (e) { body = text; }
+
+        console.log("n8n webhook response:", { status, bodyPreview: typeof text === "string" ? text.slice(0, 1000) : text });
+
+        if (status < 200 || status >= 300) {
+            return res.status(502).json({ error: "Webhook returned non-2xx", status, body });
         }
-        
-        res.json(responseData);
+
+        return res.status(200).json(body);
     } catch (err) {
-        console.error("Error calling n8n webhook:", err);
-        res.status(500).json({ error: "Failed to communicate with AI agent" });
+        console.error("Error calling n8n webhook:", err && err.stack ? err.stack : err);
+        const detail = err.name === "AbortError" ? "timeout" : (err.message || String(err));
+        return res.status(500).json({ error: "Failed to call webhook", detail });
     }
 });
 

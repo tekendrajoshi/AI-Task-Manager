@@ -230,6 +230,34 @@ app.post('/api/chat', requireUserId, async (req, res) => {
     }
 });
 
+// add a small helper for fetch that includes cookies
+async function apiFetch(url, options = {}) {
+  const opts = {
+    credentials: 'include', // send cookies to server
+    headers: { ...(options.headers || {}) },
+    ...options
+  };
+  // default JSON header for body-carrying requests
+  if (opts.body && !opts.headers?.['Content-Type']) {
+    opts.headers['Content-Type'] = 'application/json';
+  }
+  return fetch(url, opts);
+}
+
+// Replace direct fetch to /api/chat with apiFetch
+// Example: previously:
+// const res = await fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message, user_id: userId }) });
+
+// New:
+const res = await apiFetch('/api/chat', {
+  method: 'POST',
+  body: JSON.stringify({ message }) // server reads req.user_id from cookie
+});
+
+// Also update other API calls to use apiFetch, e.g.:
+// fetch(`/api/task-stats?user_id=${encodeURIComponent(userId)}`)
+// -> apiFetch(`/api/task-stats`)  (server gets user_id from cookie)
+
 // ------------------- START SERVER -------------------
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
