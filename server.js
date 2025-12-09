@@ -9,6 +9,16 @@ require("dotenv").config();
 
 const app = express();
 
+require("dotenv").config();
+
+app.get("/config", (req, res) => {
+  res.json({
+    GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID
+  });
+});
+
+
+
 // Middleware
 app.use(cors({
     origin: true,
@@ -384,7 +394,7 @@ app.delete("/api/tasks/:id", requireAuth, async (req, res) => {
 // Chat with AI
 app.post("/api/chat", requireAuth, async (req, res) => {
     const { message } = req.body || {};
-    const WEBHOOK_URL = "https://n8n-production-be6f.up.railway.app/webhook/17e8f3f1-996f-448c-86df-16a3ee302e96";
+    const WEBHOOK_URL = process.env.N8N_WEBHOOK_URL;
 
     if (!message) {
         return res.status(400).json({ error: "No message provided" });

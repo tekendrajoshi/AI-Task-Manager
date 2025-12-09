@@ -10,11 +10,12 @@ const SALT_ROUNDS = 12;
 
 // ------------------- DATABASE CONNECTION -------------------
 const dbConfig = {
-    host: "mysql.railway.internal", // Use public host if running locally
-    user: "root",
-    password: "jMNYJWgXozTYlDbPcECyjHBMuTwXwvWU",
-    database: "railway"
+    host: process.env.DB_HOST,
+    user: process.env.DB_USER,
+    password: process.env.DB_PASSWORD,
+    database: process.env.DB_NAME
 };
+
 
 let db;
 mysql.createConnection(dbConfig).then(connection => {
