@@ -13,7 +13,7 @@ const app = express();
 require('dotenv').config();
 
 // Frontend origin (set FRONTEND_ORIGIN in .env for production)
-const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN || 'http://localhost:3000';
+const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN || 'https://ai-task-manager-1-y92u.onrender.com';
 
 // If behind a proxy (Render, Railway, etc.) trust first proxy so secure cookies and req.protocol work
 app.set('trust proxy', 1);
