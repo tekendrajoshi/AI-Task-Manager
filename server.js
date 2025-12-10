@@ -5,23 +5,51 @@ const path = require("path");
 const cookieParser = require("cookie-parser");
 const { randomUUID } = require("crypto");
 const bcrypt = require("bcrypt");
-require("dotenv").config();
 
+// create app
 const app = express();
 
-require("dotenv").config();
+// load environment variables once
+require('dotenv').config();
 
+// Frontend origin (set FRONTEND_ORIGIN in .env for production)
+const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN || 'http://localhost:3000';
+
+// If behind a proxy (Render, Railway, etc.) trust first proxy so secure cookies and req.protocol work
+app.set('trust proxy', 1);
+
+// unified cookie options helper
+const cookieOptions = () => {
+    const isProd = process.env.NODE_ENV === 'production';
+    return {
+        httpOnly: true,
+        secure: isProd,                    // true in production (Render requires)
+        sameSite: isProd ? 'none' : 'lax', // none for cross-site in prod, lax for local dev
+        path: '/',
+        maxAge: 7 * 24 * 60 * 60 * 1000
+    };
+};
+
+// small helper used for clearing cookies (matching sameSite/secure behavior)
+const clearCookieOptions = () => {
+    const isProd = process.env.NODE_ENV === 'production';
+    return {
+        path: '/',
+        sameSite: isProd ? 'none' : 'lax',
+        secure: isProd
+    };
+};
+
+// expose google client id to frontend
 app.get("/config", (req, res) => {
   res.json({
-    GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID
+    GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID || ""
   });
 });
 
-
-
 // Middleware
 app.use(cors({
-    origin: true,
+    origin: FRONTEND_ORIGIN,
     credentials: true
 }));
 app.use(express.json());
@@ -96,13 +124,8 @@ app.post("/auth/google", async (req, res) => {
             );
         }
 
-        // Set cookie with user_id
-        res.cookie("user_id", user_id, { 
-            httpOnly: true, 
-            secure: process.env.NODE_ENV === "production",
-            sameSite: "lax",
-            maxAge: 7 * 24 * 60 * 60 * 1000 
-        });
+        // Set cookie with user_id using unified options
+        res.cookie("user_id", user_id, cookieOptions());
         
         return res.json({ 
             success: true, 
@@ -153,12 +176,7 @@ app.post("/auth/login", async (req, res) => {
         }
 
         // Set cookie
-        res.cookie("user_id", user.user_id, { 
-            httpOnly: true, 
-            secure: process.env.NODE_ENV === "production",
-            sameSite: "lax",
-            maxAge: 7 * 24 * 60 * 60 * 1000 
-        });
+        res.cookie("user_id", user.user_id, cookieOptions());
         
         return res.json({ 
             success: true, 
@@ -218,12 +236,7 @@ app.post("/auth/register", async (req, res) => {
         );
 
         // Set cookie
-        res.cookie("user_id", user_id, { 
-            httpOnly: true, 
-            secure: process.env.NODE_ENV === "production",
-            sameSite: "lax",
-            maxAge: 7 * 24 * 60 * 60 * 1000 
-        });
+        res.cookie("user_id", user_id, cookieOptions());
         
         return res.json({ 
             success: true, 
@@ -240,7 +253,7 @@ app.post("/auth/register", async (req, res) => {
 });
 
 app.post("/auth/logout", (req, res) => {
-    res.clearCookie("user_id");
+    res.clearCookie("user_id", clearCookieOptions());
     res.json({ success: true, message: "Logged out successfully" });
 });
 
