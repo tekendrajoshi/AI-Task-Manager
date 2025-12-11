@@ -283,51 +283,76 @@ app.get("/api/tasks", requireAuth, async (req, res) => {
     }
 });
 
+
+
+
+
+
+
+
+
+
+
+
+
+// --- Server-side helpers (put near top of server.js) ---
+function parseServerDate(value) {
+  if (!value && value !== 0) return null;
+  if (value instanceof Date) return isNaN(value) ? null : value;
+  const s = String(value).trim();
+  // If MySQL returns "YYYY-MM-DD HH:MM:SS" or ISO, try Date parsing robustly
+  if (/^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}(:\d{2})?$/.test(s)) {
+    return new Date(s.replace(' ', 'T') + 'Z'); // treat as UTC
+  }
+  const d = new Date(s);
+  return isNaN(d) ? null : d;
+}
+
+function utcDateOnlyMsServer(d) {
+  return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+}
+
+
 // Get task stats for dashboard
+
 app.get("/api/task-stats", requireAuth, async (req, res) => {
     try {
-        // Get tasks for this user
         const [tasks] = await pool.query(
             "SELECT * FROM ai_task_manager WHERE user_id = ?",
             [req.user_id]
         );
         
         const stats = {
-            byStatus: {
-                "Not Started": 0,
-                "Pending": 0,
-                "Completed": 0
-            },
-            byPriority: {
-                "High": 0,
-                "Medium": 0,
-                "Low": 0
-            },
+            byStatus: { "Not Started": 0, "Pending": 0, "Completed": 0 },
+            byPriority: { "High": 0, "Medium": 0, "Low": 0 },
             total: 0,
             urgent: 0,
             upcomingDeadlines: []
         };
-        
+
+        const now = new Date();
+        const msPerDay = 24 * 60 * 60 * 1000;
+        const utcNowMs = utcDateOnlyMsServer(now);
+
         tasks.forEach(task => {
-            // Status counts
             stats.byStatus[task.Status] = (stats.byStatus[task.Status] || 0) + 1;
-            
-            // Priority counts
             if (task.Priority) {
                 stats.byPriority[task.Priority] = (stats.byPriority[task.Priority] || 0) + 1;
             }
-            
-            // Urgent tasks (due in 3 days or less)
+
             if (task.DueDate && task.Status !== 'Completed') {
-                const dueDate = new Date(task.DueDate);
-                const now = new Date();
-                const diffDays = Math.ceil((dueDate - now) / (1000 * 60 * 60 * 24));
-                
+                const dueDateObj = parseServerDate(task.DueDate);
+                if (!dueDateObj) return;
+
+                const utcDueMs = utcDateOnlyMsServer(dueDateObj);
+                const diffDays = Math.floor((utcDueMs - utcNowMs) / msPerDay); // 0 = today, >0 future, <0 overdue
+
+                // Urgent tasks (due in 3 days or less, and not overdue)
                 if (diffDays <= 3 && diffDays >= 0) {
                     stats.urgent++;
                 }
-                
-                // Upcoming deadlines (next 7 days)
+
+                // Upcoming deadlines (next 7 days, including today)
                 if (diffDays >= 0 && diffDays <= 7) {
                     stats.upcomingDeadlines.push({
                         ...task,
@@ -336,18 +361,30 @@ app.get("/api/task-stats", requireAuth, async (req, res) => {
                 }
             }
         });
-        
+
         stats.total = tasks.length;
-        
-        // Sort upcoming deadlines
         stats.upcomingDeadlines.sort((a, b) => a.days_remaining - b.days_remaining);
-        
+
         res.json(stats);
     } catch (err) {
         console.error("Error fetching task stats:", err);
         res.status(500).json({ error: err.message });
     }
 });
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 // Update task status
 app.put("/api/tasks/:id", requireAuth, async (req, res) => {
@@ -465,8 +502,11 @@ app.post("/api/chat", requireAuth, async (req, res) => {
 });
 
 // Get notifications
+
+
 app.get("/api/notifications", requireAuth, async (req, res) => {
     try {
+        // Keep SQL filter for 3 days window if you want DB-level filtering, otherwise you can fetch all and filter in JS.
         const [tasks] = await pool.query(
             `SELECT 
                 TaskID,
@@ -479,46 +519,76 @@ app.get("/api/notifications", requireAuth, async (req, res) => {
                 user_id = ?
                 AND Status != 'Completed' 
                 AND DueDate IS NOT NULL
-                AND DueDate <= CURDATE() + INTERVAL 3 DAY
             ORDER BY DueDate ASC`,
             [req.user_id]
         );
-        
+
+        const now = new Date();
+        const msPerDay = 24 * 60 * 60 * 1000;
+        const utcNowMs = utcDateOnlyMsServer(now);
+
         const notifications = tasks.map(task => {
-            const dueDate = new Date(task.DueDate);
-            const now = new Date();
-            const daysRemaining = Math.ceil((dueDate - now) / (1000 * 60 * 60 * 24));
-            
+            const dueDateObj = parseServerDate(task.DueDate);
+            if (!dueDateObj) return null;
+
+            const utcDueMs = utcDateOnlyMsServer(dueDateObj);
+            const diffDays = Math.floor((utcDueMs - utcNowMs) / msPerDay);
+
             let message = '';
             let type = 'info';
-            
-            if (daysRemaining < 0) {
-                message = `"${task.Title}" is overdue by ${Math.abs(daysRemaining)} days!`;
+
+            if (diffDays < 0) {
+                message = `"${task.Title}" is overdue by ${Math.abs(diffDays)} ${Math.abs(diffDays) === 1 ? 'day' : 'days'}!`;
                 type = 'urgent';
-            } else if (daysRemaining === 0) {
+            } else if (diffDays === 0) {
                 message = `"${task.Title}" is due today!`;
                 type = 'warning';
-            } else if (daysRemaining <= 2) {
-                message = `"${task.Title}" is due in ${daysRemaining} days`;
+            } else if (diffDays <= 2) {
+                message = `"${task.Title}" is due in ${diffDays} ${diffDays === 1 ? 'day' : 'days'}`;
                 type = 'warning';
             } else {
-                message = `"${task.Title}" is due in ${daysRemaining} days`;
+                message = `"${task.Title}" is due in ${diffDays} ${diffDays === 1 ? 'day' : 'days'}`;
                 type = 'info';
             }
-            
+
             return {
                 ...task,
                 message,
-                type
+                type,
+                days_remaining: diffDays
             };
-        }).filter(n => n.message);
-        
-        res.json(notifications);
+        }).filter(n => n && n.message);
+
+        // Optionally filter to only notifications within +3 days (if needed)
+        const filtered = notifications.filter(n => n.days_remaining <= 3);
+
+        res.json(filtered);
     } catch (err) {
         console.error("Error fetching notifications:", err);
         res.status(500).json({ error: err.message });
     }
 });
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 // Check if user is authenticated
 app.get("/api/check-auth", (req, res) => {

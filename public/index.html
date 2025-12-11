@@ -197,7 +197,11 @@
         </section>
     </main>
 
+
+
     <script src="script.js"></script>
+
+
     <script>
 // Global Variables
 let currentPage = 'dashboard';
@@ -307,6 +311,143 @@ function switchPage(page) {
     }
 }
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+<!-- --- Front-end: Add/replace these helper functions -->
+
+// --- Robust date parser for DB timestamps (handles "YYYY-MM-DD HH:MM:SS" and ISO variants) ---
+function parseToDate(input) {
+  if (!input && input !== 0) return null;
+  if (input instanceof Date) return isNaN(input) ? null : input;
+
+  // numeric timestamp (ms)
+  if (typeof input === 'number' || /^\d+$/.test(String(input))) {
+    const n = Number(input);
+    const d = new Date(n);
+    return isNaN(d) ? null : d;
+  }
+
+  let s = String(input).trim();
+
+  // If already ISO-like (contains 'T') or has timezone indicator (Z or +hh:mm / -hh:mm) use as-is
+  const hasT = s.includes('T');
+  const hasZ = /Z$/i.test(s);
+  const hasTZoffset = /[+\-]\d{2}:\d{2}$/.test(s);
+
+  if (!hasT && !hasZ && !hasTZoffset) {
+    // Convert "YYYY-MM-DD HH:MM:SS" -> "YYYY-MM-DDTHH:MM:SSZ"
+    if (/^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}(:\d{2})?$/.test(s)) {
+      s = s.replace(/\s+/, 'T');
+      if (!s.endsWith('Z')) s = s + 'Z';
+    } else if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+      // date-only -> UTC midnight
+      s = s + 'T00:00:00Z';
+    } else {
+      // fallback: replace first space with 'T' and append Z if no timezone
+      s = s.replace(/\s+/, 'T');
+      if (!/[Z+\-]\d{2}/.test(s)) s = s + 'Z';
+    }
+  }
+
+  const d = new Date(s);
+  return isNaN(d) ? null : d;
+}
+
+// --- UTC date-only ms (midnight UTC) ---
+function utcDateOnlyMs(d) {
+  return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+}
+
+// --- Returns integer days remaining: (dueDate - today) in UTC days
+// 0 = due today, positive = days until due, negative = overdue
+function getDaysRemaining(dateString) {
+  const date = parseToDate(dateString);
+  if (!date) return null;
+  const now = new Date();
+  const msPerDay = 24 * 60 * 60 * 1000;
+  const diff = Math.floor((utcDateOnlyMs(date) - utcDateOnlyMs(now)) / msPerDay);
+  return diff;
+}
+
+// --- formatDate: uses UTC day-only comparison
+function formatDate(dateString) {
+  if (!dateString) return 'No date';
+  const date = parseToDate(dateString);
+  if (!date) return 'Invalid date';
+  const now = new Date();
+  const msPerDay = 24 * 60 * 60 * 1000;
+  const diffDays = Math.floor((utcDateOnlyMs(now) - utcDateOnlyMs(date)) / msPerDay);
+
+  if (diffDays === 0) return 'Today';
+  if (diffDays === 1) return 'Yesterday';
+  if (diffDays > 1 && diffDays < 7) return `${diffDays} days ago`;
+
+  // Older: readable date (display in user's locale)
+  return date.toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: date.getUTCFullYear() !== now.getUTCFullYear() ? 'numeric' : undefined
+  });
+}
+
+
+
+function updateDashboardStats(stats) {
+    // Update stat cards
+    if (document.getElementById('pending-count')) 
+        document.getElementById('pending-count').textContent = stats.byStatus['Pending'] || 0;
+    if (document.getElementById('completed-count')) 
+        document.getElementById('completed-count').textContent = stats.byStatus['Completed'] || 0;
+    if (document.getElementById('not-started-count')) 
+        document.getElementById('not-started-count').textContent = stats.byStatus['Not Started'] || 0;
+    if (document.getElementById('urgent-count')) 
+        document.getElementById('urgent-count').textContent = stats.urgent || 0;
+    
+    // Update upcoming deadlines
+    const deadlinesList = document.getElementById('upcoming-deadlines');
+    if (!deadlinesList) return;
+    
+    deadlinesList.innerHTML = '';
+    
+    if (stats.upcomingDeadlines && stats.upcomingDeadlines.length > 0) {
+        stats.upcomingDeadlines.forEach(task => {
+            const daysRemaining = getDaysRemaining(task.DueDate);
+            const item = document.createElement('div');
+            item.className = 'deadline-item';
+            const dayLabel = (daysRemaining === 0) ? 'today' :
+                             (daysRemaining < 0) ? `${Math.abs(daysRemaining)} days ago` :
+                             `${daysRemaining} ${Math.abs(daysRemaining) === 1 ? 'day' : 'days'}`;
+            const urgentClass = (daysRemaining !== null && daysRemaining >= 0 && daysRemaining <= 2) ? 'urgent' : (daysRemaining < 0 ? 'overdue' : '');
+            item.innerHTML = `
+                <div class="deadline-title">${task.Title}</div>
+                <div class="deadline-date ${urgentClass}">
+                    ${formatDate(task.DueDate)} (${dayLabel})
+                </div>
+            `;
+            deadlinesList.appendChild(item);
+        });
+    } else {
+        deadlinesList.innerHTML = '<div class="no-deadlines">No upcoming deadlines</div>';
+    }
+}
+
+
+
+
+
+
+
 // Dashboard Functions
 async function loadDashboard() {
     try {
@@ -328,126 +469,77 @@ async function loadDashboard() {
     }
 }
 
-function updateDashboardStats(stats) {
-    // Update stat cards
-    if (document.getElementById('pending-count')) 
-        document.getElementById('pending-count').textContent = stats.byStatus['Pending'] || 0;
-    if (document.getElementById('completed-count')) 
-        document.getElementById('completed-count').textContent = stats.byStatus['Completed'] || 0;
-    if (document.getElementById('not-started-count')) 
-        document.getElementById('not-started-count').textContent = stats.byStatus['Not Started'] || 0;
-    if (document.getElementById('urgent-count')) 
-        document.getElementById('urgent-count').textContent = stats.urgent || 0;
+
+
+
+
+
+
+
+function createTaskElement(task) {
+    const div = document.createElement('div');
+    div.className = `task-card priority-${task.Priority ? task.Priority.toLowerCase() : 'medium'}`;
+    div.dataset.id = task.TaskID;
+    div.draggable = true;
+
+    const dueDateObj = task.DueDate ? parseToDate(task.DueDate) : null;
+    const daysRemaining = dueDateObj !== null ? getDaysRemaining(task.DueDate) : null;
     
-    // Update upcoming deadlines
-    const deadlinesList = document.getElementById('upcoming-deadlines');
-    if (!deadlinesList) return;
+    // choose CSS class: overdue, urgent, or normal
+    const dueClass = (daysRemaining === null) ? '' :
+                     (daysRemaining < 0) ? 'overdue' :
+                     (daysRemaining <= 2) ? 'urgent' : '';
+
+    div.innerHTML = `
+        <div class="task-header">
+            <div>
+                <div class="task-title">${task.Title || 'Untitled Task'}</div>
+                ${task.Description ? `<div class="task-description">${task.Description}</div>` : ''}
+            </div>
+            <div class="task-priority">${getPriorityIcon(task.Priority)}</div>
+        </div>
+        <div class="task-footer">
+            <div class="task-info">
+                ${dueDateObj ? `<div class="task-due ${dueClass}">
+                    ${formatDate(task.DueDate)} ${daysRemaining !== null ? `(${daysRemaining < 0 ? Math.abs(daysRemaining) + 'd ago' : daysRemaining === 0 ? 'today' : daysRemaining + 'd'})` : ''}
+                </div>` : ''}
+                <div class="task-created">Created: ${formatDate(task.CreatedAt)}</div>
+            </div>
+            <div class="task-actions">
+                <button class="action-btn" onclick="updateTaskStatus(${task.TaskID}, 'Completed')" title="Mark as completed">
+                    ✓
+                </button>
+                <button class="action-btn" onclick="deleteTask(${task.TaskID})" title="Delete task">
+                    ×
+                </button>
+            </div>
+        </div>
+    `;
     
-    deadlinesList.innerHTML = '';
+    // Add drag and drop event listeners
+    div.addEventListener('dragstart', handleDragStart);
+    div.addEventListener('dragover', handleDragOver);
+    div.addEventListener('drop', handleDrop);
     
-    if (stats.upcomingDeadlines && stats.upcomingDeadlines.length > 0) {
-        stats.upcomingDeadlines.forEach(task => {
-            const daysRemaining = Math.ceil((new Date(task.DueDate) - new Date()) / (1000 * 60 * 60 * 24));
-            const item = document.createElement('div');
-            item.className = 'deadline-item';
-            item.innerHTML = `
-                <div class="deadline-title">${task.Title}</div>
-                <div class="deadline-date ${daysRemaining <= 2 ? 'urgent' : ''}">
-                    ${formatDate(task.DueDate)} (${daysRemaining} ${daysRemaining === 1 ? 'day' : 'days'})
-                </div>
-            `;
-            deadlinesList.appendChild(item);
-        });
-    } else {
-        deadlinesList.innerHTML = '<div class="no-deadlines">No upcoming deadlines</div>';
-    }
+    return div;
 }
 
-// Chart Functions
-let statusChart, priorityChart;
 
-function initCharts() {
-    const statusCtx = document.getElementById('status-chart');
-    const priorityCtx = document.getElementById('priority-chart');
-    
-    if (!statusCtx || !priorityCtx) return;
-    
-    statusCtx = statusCtx.getContext('2d');
-    priorityCtx = priorityCtx.getContext('2d');
-    
-    statusChart = new Chart(statusCtx, {
-        type: 'doughnut',
-        data: {
-            labels: ['Not Started', 'Pending', 'Completed'],
-            datasets: [{
-                data: [0, 0, 0],
-                backgroundColor: [
-                    '#6c757d',
-                    '#ff9f1c',
-                    '#2ec4b6'
-                ],
-                borderWidth: 2,
-                borderColor: '#fff'
-            }]
-        },
-        options: {
-            responsive: true,
-            plugins: {
-                legend: {
-                    position: 'bottom'
-                }
-            }
-        }
-    });
-    
-    priorityChart = new Chart(priorityCtx, {
-        type: 'bar',
-        data: {
-            labels: ['High', 'Medium', 'Low'],
-            datasets: [{
-                label: 'Tasks by Priority',
-                data: [0, 0, 0],
-                backgroundColor: [
-                    '#e71d36',
-                    '#ff9f1c',
-                    '#2ec4b6'
-                ],
-                borderWidth: 1
-            }]
-        },
-        options: {
-            responsive: true,
-            scales: {
-                y: {
-                    beginAtZero: true,
-                    ticks: {
-                        stepSize: 1
-                    }
-                }
-            }
-        }
-    });
-}
 
-function updateCharts(stats) {
-    if (!statusChart || !priorityChart) return;
-    
-    // Update status chart
-    statusChart.data.datasets[0].data = [
-        stats.byStatus['Not Started'] || 0,
-        stats.byStatus['Pending'] || 0,
-        stats.byStatus['Completed'] || 0
-    ];
-    statusChart.update();
-    
-    // Update priority chart
-    priorityChart.data.datasets[0].data = [
-        stats.byPriority['High'] || 0,
-        stats.byPriority['Medium'] || 0,
-        stats.byPriority['Low'] || 0
-    ];
-    priorityChart.update();
-}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 // Tasks Functions
 async function loadTasks() {
@@ -534,48 +626,7 @@ function renderTasks(filter = 'all') {
     if (completedCount) completedCount.textContent = groupedTasks['Completed'].length;
 }
 
-function createTaskElement(task) {
-    const div = document.createElement('div');
-    div.className = `task-card priority-${task.Priority ? task.Priority.toLowerCase() : 'medium'}`;
-    div.dataset.id = task.TaskID;
-    div.draggable = true;
-    
-    const dueDate = task.DueDate ? new Date(task.DueDate) : null;
-    const daysRemaining = dueDate ? Math.ceil((dueDate - new Date()) / (1000 * 60 * 60 * 24)) : null;
-    
-    div.innerHTML = `
-        <div class="task-header">
-            <div>
-                <div class="task-title">${task.Title || 'Untitled Task'}</div>
-                ${task.Description ? `<div class="task-description">${task.Description}</div>` : ''}
-            </div>
-            <div class="task-priority">${getPriorityIcon(task.Priority)}</div>
-        </div>
-        <div class="task-footer">
-            <div class="task-info">
-                ${dueDate ? `<div class="task-due ${daysRemaining <= 2 ? 'urgent' : ''}">
-                    ${formatDate(task.DueDate)}
-                </div>` : ''}
-                <div class="task-created">Created: ${formatDate(task.CreatedAt)}</div>
-            </div>
-            <div class="task-actions">
-                <button class="action-btn" onclick="updateTaskStatus(${task.TaskID}, 'Completed')" title="Mark as completed">
-                    ✓
-                </button>
-                <button class="action-btn" onclick="deleteTask(${task.TaskID})" title="Delete task">
-                    ×
-                </button>
-            </div>
-        </div>
-    `;
-    
-    // Add drag and drop event listeners
-    div.addEventListener('dragstart', handleDragStart);
-    div.addEventListener('dragover', handleDragOver);
-    div.addEventListener('drop', handleDrop);
-    
-    return div;
-}
+
 
 function getPriorityIcon(priority) {
     const icons = {
@@ -906,24 +957,7 @@ function requestNotificationPermission() {
 }
 
 // Utility Functions
-function formatDate(dateString) {
-    if (!dateString) return 'No date';
-    
-    const date = new Date(dateString);
-    const now = new Date();
-    const diffTime = Math.abs(now - date);
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    
-    if (diffDays === 0) return 'Today';
-    if (diffDays === 1) return 'Yesterday';
-    if (diffDays < 7) return `${diffDays} days ago`;
-    
-    return date.toLocaleDateString('en-US', {
-        month: 'short',
-        day: 'numeric',
-        year: date.getFullYear() !== now.getFullYear() ? 'numeric' : undefined
-    });
-}
+
 
 function showNotification(message, type = 'info') {
     const container = document.getElementById('notification-container');
