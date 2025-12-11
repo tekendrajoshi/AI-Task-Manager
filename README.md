@@ -1,44 +1,59 @@
-# AI-Task-Manager
+# AI Task Manager
 
-lets do step by step first tell me the columns that should be in the user table(it should store the data that google provides with continue with google option while login)  for both the table users and the ai_task_manager the user id column will be the one provided by the google itself for those who dont login with google it will be auto generated right?
+An AI-powered task management system that helps students and users manage their tasks efficiently while integrating an AI agent for discussion, feedback, and task creation.
 
+---
 
+## Table of Contents
 
- ok my n8n autiomation is now working and i am able to store tasks now is to make a complete webapp that has one webpage as the dashboard another as the chatting with thhe ai agent section (similar to chatgpts one) and another page where the tasks stored in the sql database(railways i.e. is remotely stored hopw we can extract datas from that too) are fetched and then presented in the webpage with three sections one for completed works another for pending and another for not started ones i.e. classified based on the status or we can aso give user to view the tasks onto did=ff sections classified based priority too. there should be notification system to i.e. the app should notify the user about its pending works time and again and notify about the deadlines. 
+- [Overview](#overview)  
+- [Features](#features)  
+- [Demo](#demo)  
+- [Tech Stack](#tech-stack)  
+- [Setup & Installation](#setup--installation)  
+- [Usage](#usage)  
+- [Database Structure](#database-structure)  
+- [Future Enhancements](#future-enhancements)  
 
+---
 
+## Overview
 
- 🔷 1. PROJECT NAME
+As students, we often brainstorm ideas with ChatGPT or similar AI tools and create mindmaps—but remembering everything or manually summarizing discussions into notes is difficult and inefficient.  
 
-AI Task Manager Web App
+The **AI Task Manager** automates this process: you can discuss with the AI agent, receive feedback, and directly add tasks with a single prompt. Tasks are organized efficiently with status tracking and priority management.
 
-🔷 2. PROJECT GOAL
+---
 
-A web-based AI-powered task manager where a user can:
+## Features
 
-Chat with an AI agent to add/manage tasks.
+- Task organization with **Not Started / Pending / Completed** sections.  
+- **AI Agent integration** via n8n workflow for discussion and instant task addition.  
+- **Multi-user support** with Google login.  
+- Notifications for **upcoming deadlines** and **urgent tasks**.  
+- Dashboard displaying **task summary, priority, and status statistics**.  
 
-View tasks in different categories (Not started / Pending / Completed).
+---
 
-Use an interactive dashboard with stats, notifications, upcoming deadlines.
+## Demo
 
-Everything connected to a backend + SQL database + an n8n workflow.
- 
+*(Include screenshots or a GIF here to show the dashboard, AI chat, and tasks sections.)*  
 
+---
 
+## Tech Stack
 
- ## NEXT STEPS (Recommended Order)
+- **Frontend:** HTML, CSS, JavaScript  
+- **Backend:** Node.js, Express  
+- **Database:** MySQL (Railway hosting)  
+- **AI Integration:** n8n workflow (Webhook connected to AI agent)  
 
-Create users table in Railway
+---
 
-Add user_id column to tasks table
+## Setup & Installation
 
-Implement Google Login
+1. **Clone the repository:**
 
-Store Google user in DB
-
-Send user_id with every request
-
-Modify n8n workflow to store tasks by user
-
-Deploy frontend + backend on Railway
+```bash
+git clone <your-repo-link>
+cd AI-Task-Manager
