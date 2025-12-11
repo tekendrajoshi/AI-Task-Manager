@@ -13,7 +13,9 @@
     <nav class="navbar">
         <div class="logo">
             <i class="fas fa-robot"></i>
-            <span>AI Task Manager</span>
+            <span>TaskAI</span></div>
+          
+
         </div>
         <ul class="nav-links">
             <li>
@@ -34,13 +36,7 @@
                     <span>Talk to AI</span>
                 </a>
             </li>
-            <li>
-                <a href="#" class="nav-link" id="notifications-link">
-                    <i class="fas fa-bell"></i>
-                    <span>Notifications</span>
-                    <span class="notification-badge" id="notification-badge" style="display: none;">0</span>
-                </a>
-            </li>
+            
         </ul>
     </nav>
 
@@ -64,7 +60,7 @@
                     </div>
                     <div class="stat-info">
                         <h3 id="pending-count">0</h3>
-                        <p>Pending Tasks</p>
+                        <p>In Progress</p>
                     </div>
                 </div>
                 <div class="stat-card">
@@ -96,17 +92,7 @@
                 </div>
             </div>
 
-            <!-- Charts -->
-            <div class="charts-grid">
-                <div class="chart-container">
-                    <h3>Tasks by Status</h3>
-                    <canvas id="status-chart"></canvas>
-                </div>
-                <div class="chart-container">
-                    <h3>Tasks by Priority</h3>
-                    <canvas id="priority-chart"></canvas>
-                </div>
-            </div>
+           
 
             <!-- Upcoming Deadlines -->
             <div class="chart-container">
@@ -123,8 +109,8 @@
                 <h1>All Tasks</h1>
                 <div class="filter-controls">
                     <button class="filter-btn active" data-filter="all">All</button>
-                    <button class="filter-btn" data-filter="status">By Status</button>
-                    <button class="filter-btn" data-filter="priority">By Priority</button>
+                  
+        
                     <button class="filter-btn" data-filter="High">High Priority</button>
                     <button class="filter-btn" data-filter="Medium">Medium Priority</button>
                     <button class="filter-btn" data-filter="Low">Low Priority</button>
@@ -138,7 +124,7 @@
                         <h3>
                             <i class="fas fa-plus-circle"></i>
                             Not Started
-                            <span class="task-count" id="not-started-count">0</span>
+                            
                         </h3>
                     </div>
                     <div class="task-list" id="not-started-tasks">
@@ -146,13 +132,13 @@
                     </div>
                 </div>
 
-                <!-- Pending Column -->
+                <!-- In Progress Column -->
                 <div class="task-column" data-status="Pending">
                     <div class="column-header">
                         <h3>
                             <i class="fas fa-clock"></i>
-                            Pending
-                            <span class="task-count" id="pending-count">0</span>
+                            In Progress
+                            
                         </h3>
                     </div>
                     <div class="task-list" id="pending-tasks">
@@ -166,7 +152,7 @@
                         <h3>
                             <i class="fas fa-check-circle"></i>
                             Completed
-                            <span class="task-count" id="completed-count">0</span>
+                            
                         </h3>
                     </div>
                     <div class="task-list" id="completed-tasks">
