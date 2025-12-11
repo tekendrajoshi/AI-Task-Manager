@@ -94,6 +94,13 @@ document.getElementById('manual-login-form').addEventListener('submit', async (e
         const result = await response.json();
 
         if (result.success) {
+            // Save user info to localStorage so client-side checks won't redirect
+            const user = result.user || {};
+            if (user.user_id) localStorage.setItem('user_id', user.user_id);
+            if (user.name) localStorage.setItem('user_name', user.name);
+            if (user.email) localStorage.setItem('user_email', user.email);
+            if (user.picture) localStorage.setItem('user_picture', user.picture);
+
             window.location.href = '/index.html';
         } else {
             showError(result.message || 'Login failed');
@@ -113,7 +120,14 @@ function handleCredentialResponse(response) {
     })
     .then(r => r.json())
     .then(data => {
-        if (data.success) {
+        if (data.success && data.user) {
+            // Save user info to localStorage
+            const user = data.user;
+            if (user.user_id) localStorage.setItem('user_id', user.user_id);
+            if (user.name) localStorage.setItem('user_name', user.name);
+            if (user.email) localStorage.setItem('user_email', user.email);
+            if (user.picture) localStorage.setItem('user_picture', user.picture);
+
             window.location.href = '/index.html';
         } else {
             showError(data.message || 'Google login failed');

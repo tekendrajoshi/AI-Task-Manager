@@ -48,10 +48,7 @@ function showRegisterError(msg){
   el.style.display = msg ? 'block' : 'none';
 }
 
-
-
 /* Handle registration form submission ========================================================*/
-// In register.html - update the form submission handler
 document.getElementById('register-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     showRegisterError('');
@@ -72,7 +69,15 @@ document.getElementById('register-form').addEventListener('submit', async (e) =>
         const result = await response.json();
         
         if (result && result.success) {
-            // Server sets the cookie, now redirect to index.html
+            // Save user info to localStorage to prevent redirect loop
+            const user = result.user || {};
+            // server might return user object or user_id; handle both
+            if (result.user_id) localStorage.setItem('user_id', result.user_id);
+            if (user.user_id) localStorage.setItem('user_id', user.user_id);
+            if (user.name) localStorage.setItem('user_name', user.name);
+            if (user.email) localStorage.setItem('user_email', user.email);
+            if (user.picture) localStorage.setItem('user_picture', user.picture);
+
             window.location.href = '/index.html';
         } else {
             showRegisterError(result?.message || 'Registration failed');
