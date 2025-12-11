@@ -152,7 +152,26 @@ return items.map(item => {
 
 
 
+DB_HOST=mysql.railway.internal
+DB_USER=root
+DB_PASSWORD=jMNYJWgXozTYlDbPcECyjHBMuTwXwvWU
+DB_NAME=railway
+DB_PORT=3306
 
+DB_HOST=switchback.proxy.rlwy.net
+DB_USER=root
+DB_PASSWORD=BFYBDMCEwDZXYgCUhNWjdKQjQXmmmZcv
+DB_NAME=railway
+DB_PORT=17136
+
+
+GOOGLE_CLIENT_ID=417160946652-c27t0f9f0ls0febl59u1iu90jo08okha.apps.googleusercontent.com
+N8N_WEBHOOK_URL= https://n8n-production-be6f.up.railway.app/webhook/17e8f3f1-996f-448c-86df-16a3ee302e96
+
+
+
+FRONTEND_ORIGIN=http://localhost:3000
+NODE_ENV=development
 
 
 

@@ -57,15 +57,18 @@ app.use(cookieParser());
 
 // Database configuration
 const pool = mysql.createPool({
-    host: "centerbeam.proxy.rlwy.net",
+    host: "switchback.proxy.rlwy.net",
     user: "root",
-    password: "jMNYJWgXozTYlDbPcECyjHBMuTwXwvWU",
+    password: "BFYBDMCEwDZXYgCUhNWjdKQjQXmmmZcv",
     database: "railway",
-    port: 12008,
+    port: 17136,
     waitForConnections: true,
     connectionLimit: 10,
     queueLimit: 0
 });
+
+
+
 
 // Test database connection
 pool.getConnection()
