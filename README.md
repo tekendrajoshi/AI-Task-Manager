@@ -4,18 +4,6 @@ An AI-powered task management system that helps students and users manage their 
 
 ---
 
-## Table of Contents
-
-- [Overview](#overview)  
-- [Features](#features)  
-- [Demo](#demo)  
-- [Tech Stack](#tech-stack)  
-- [Setup & Installation](#setup--installation)  
-- [Usage](#usage)  
-- [Database Structure](#database-structure)  
-- [Future Enhancements](#future-enhancements)  
-
----
 
 ## Overview
 
@@ -37,7 +25,11 @@ The **AI Task Manager** automates this process: you can discuss with the AI agen
 
 ## Demo
 
-*(Include screenshots or a GIF here to show the dashboard, AI chat, and tasks sections.)*  
+  ![* Login/Register *](C:/Users/WELCOME/Desktop/Login.png)
+  ![* Talk to AI *](C:/Users/WELCOME/Desktop/Talk to ai.png)
+  ![* Tasks *](C:/Users/WELCOME/Desktop/Tasks.png)
+  ![* Dashboard *](C:/Users/WELCOME/Desktop/dashboard.png)
+
 
 ---
 
