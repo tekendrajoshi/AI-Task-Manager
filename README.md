@@ -25,10 +25,16 @@ The **AI Task Manager** automates this process: you can discuss with the AI agen
 
 ## Demo
 
-  ![ Login/Register ](./assets/Login.png)
-  ![ Talk to AI ](./assets/chat.png)
-  ![ Tasks ](./assets/Tasks.png)
-  ![ Dashboard ](./assets/dashboard.png)
+<p float="left">
+  <img src="./assets/Login.png" width="250"/>
+  <img src="./assets/chat.png" width="250"/>
+</p>
+
+<p float="left">
+  <img src="./assets/Tasks.png" width="250"/>
+  <img src="./assets/dashboard.png" width="250"/>
+</p>
+
 
 
 ---
