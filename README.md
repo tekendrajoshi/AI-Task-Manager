@@ -25,10 +25,10 @@ The **AI Task Manager** automates this process: you can discuss with the AI agen
 
 ## Demo
 
-  ![* Login/Register *](C:/Users/WELCOME/Desktop/Login.png)
-  ![* Talk to AI *](C:/Users/WELCOME/Desktop/Talk to ai.png)
-  ![* Tasks *](C:/Users/WELCOME/Desktop/Tasks.png)
-  ![* Dashboard *](C:/Users/WELCOME/Desktop/dashboard.png)
+  ![ Login/Register ](./assets/Login.png)
+  ![ Talk to AI ](./assets/chat.png)
+  ![ Tasks ](./assets/Tasks.png)
+  ![ Dashboard ](./assets/dashboard.png)
 
 
 ---
