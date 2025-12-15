@@ -26,19 +26,26 @@ The **AI Task Manager** automates this process: you can discuss with the AI agen
 ## Demo
 
 <p float="left">
-  <img src="./assets/Login.png" width="250"/>
-  <img src="./assets/chat.png" width="250"/>
+  <img src="./assets/Login.png" width="300"/>
+  <img src="./assets/chat.png" width="300"/>
 </p>
 
 <p float="left">
-  <img src="./assets/Tasks.png" width="250"/>
-  <img src="./assets/dashboard.png" width="250"/>
+  <img src="./assets/Tasks.png" width="300"/>
+  <img src="./assets/dashboard.png" width="300"/>
 </p>
-
 
 
 ---
 
+## N8N Workflows:
+
+<p float="left">
+  <img src="./assets/n8n_workflow.png" width="300"/>
+  <img src="./assets/sub_workflow.png" width="300"/>
+</p>
+
+---
 ## Tech Stack
 
 - **Frontend:** HTML, CSS, JavaScript  
